@@ -37,6 +37,22 @@ class WalletNameTest {
         assertEquals(name, java.net.URLDecoder.decode(encoded, "UTF-8"))
     }
 
+    /** The name Navigation hands an adding's screens, read from its route. */
+    private fun nameIn(route: String): String? =
+        route.substringAfter("add?name=", "").takeIf { it.isNotEmpty() }
+            ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+
+    @Test
+    fun a_name_from_an_abandoned_adding_never_reaches_the_next_wallet() {
+        val abandoned = addWalletRoute("Travel")
+        assertEquals("Travel", newWalletName(nameIn(abandoned), "Wallet 2"))
+        // Backing out drops that route; the next adding starts its own.
+        val next = addWalletRoute(null)
+        assertEquals("Wallet 2", newWalletName(nameIn(next), "Wallet 2"))
+        val renamed = addWalletRoute("Savings")
+        assertEquals("Savings", newWalletName(nameIn(renamed), "Wallet 2"))
+    }
+
     @Test
     fun supplementary_characters_count_once() {
         val symbol = "\uD83C\uDFD5"

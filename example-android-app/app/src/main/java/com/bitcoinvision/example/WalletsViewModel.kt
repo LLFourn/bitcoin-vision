@@ -133,7 +133,7 @@ class WalletsViewModel(app: Application) : AndroidViewModel(app) {
         }
         val record = WalletRecord(
             id = UUID.randomUUID().toString(),
-            name = chosen ?: numberedName(),
+            name = newWalletName(name, numberedName()),
             fingerprint = derived.fingerprint,
             descriptor = derived.descriptor,
             created = LocalDate.now().toString(),

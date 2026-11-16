@@ -9,6 +9,12 @@ fun normalizedWalletName(input: String): String? {
     }
 }
 
+/** The name a wallet is saved under: the one chosen for this adding, when
+ * there was one, else the numbered one. Only the adding's own route carries
+ * the choice, so nothing from an earlier adding can reach it. */
+fun newWalletName(chosen: String?, numbered: String): String =
+    chosen?.let(::normalizedWalletName) ?: numbered
+
 /** The add-wallet route's pattern; the name chosen as adding begins rides in it. */
 const val ADD_WALLET_ROUTE = "add?name={name}"
 
