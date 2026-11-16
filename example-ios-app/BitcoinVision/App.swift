@@ -6,7 +6,7 @@ import SwiftUI
  * does with its words) lives here, and the screens only report events.
  */
 struct AppRoot: View {
-    @Binding var incoming: Data?
+    @Binding var incoming: PsbtFile?
 
     @State private var nav = Navigator()
     @State private var wallets = WalletsViewModel()
@@ -27,11 +27,11 @@ struct AppRoot: View {
         }
         .tint(Palette.primary)
         // A PSBT shared to the app, from wherever the person was.
-        .onChange(of: incoming, initial: true) { _, bytes in
-            guard let bytes else { return }
+        .onChange(of: incoming, initial: true) { _, file in
+            guard let file else { return }
             incoming = nil
             creation.cancel()
-            wallets.receive(bytes)
+            wallets.receive(file)
             reviewIncoming()
         }
     }

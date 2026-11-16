@@ -6,7 +6,16 @@ struct StripScanScreen: View {
     let onRecovered: () -> Void
     let onExit: () -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
+        stage
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { viewModel.revokeAbandonedShutter() }
+            }
+    }
+
+    @ViewBuilder private var stage: some View {
         // a photograph being read, or read and failed, is shown as the
         // photograph; a strip read, or a combination that failed, is the
         // result card

@@ -221,6 +221,14 @@ final class WalletsViewModel {
      * Takes a PSBT that came in, binary or base64 text, reviewed
      * against every saved wallet. Whatever was pending is replaced.
      */
+    func receive(_ file: PsbtFile) {
+        switch file {
+        case let .bytes(bytes): receive(bytes)
+        case .tooLarge: signing = .refused(walletId: nil, reason: "That file is too large to be a transaction.")
+        case .unreadable: signing = .refused(walletId: nil, reason: "That file could not be opened. Choose another.")
+        }
+    }
+
     func receive(_ bytes: Data) {
         do {
             let review = try reviewPsbt(descriptors: wallets.map(\.descriptor), psbt: asPsbtBytes(bytes: bytes))
@@ -281,12 +289,7 @@ final class WalletsViewModel {
 
 /** The native error's own words, as the Android app reads them from the exception message. */
 private func refusalDetail(_ error: Error) -> String? {
-    guard let vision = error as? VisionError else { return nil }
-    switch vision {
-    case let .Photo(detail), let .Model(detail), let .Scan(detail), let .Qr(detail),
-         let .Recover(detail), let .Phrase(detail), let .Psbt(detail):
-        return detail
-    }
+    (error as? VisionError)?.detail
 }
 
 /** Today's date as ISO `yyyy-MM-dd`, in the phone's time zone (as `LocalDate.now()`). */

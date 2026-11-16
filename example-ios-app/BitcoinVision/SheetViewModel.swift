@@ -17,14 +17,6 @@ private enum Picked {
     case refused(message: String)
 }
 
-enum SheetStage: Equatable {
-    case idle
-
-    case scanning
-
-    case reviewing
-}
-
 /** What reads a photographed page into words. */
 protocol PhraseReader {
     /** A successful scan must emit every stage and its terminal mapping. No silent overload. */
@@ -41,6 +33,9 @@ extension PhraseReader {
 
 /** One shared native pipeline and asset set for recovery and generated backups. */
 final class NativePhraseReader: PhraseReader, @unchecked Sendable {
+    /** The app's one reader: both flows read through it, so the models are loaded once. */
+    static let shared = NativePhraseReader()
+
     private let lock = NSLock()
     private var loaded: PhraseScanner?
 
@@ -127,12 +122,14 @@ private func scannerReadable(_ bytes: Data) -> Data {
     return CGImageDestinationFinalize(destination) ? out as Data : bytes
 }
 
-/** The generated error's own words: Kotlin's message without its `detail=` prefix. */
-private func detail(_ error: VisionError) -> String {
-    switch error {
-    case let .Photo(detail), let .Model(detail), let .Scan(detail), let .Qr(detail),
-         let .Recover(detail), let .Phrase(detail), let .Psbt(detail):
-        return detail
+extension VisionError {
+    /** The generated error's own words: Kotlin's message without its `detail=` prefix. */
+    var detail: String {
+        switch self {
+        case let .Photo(detail), let .Model(detail), let .Scan(detail), let .Qr(detail),
+             let .Recover(detail), let .Phrase(detail), let .Psbt(detail):
+            return detail
+        }
     }
 }
 
@@ -140,7 +137,7 @@ private func detail(_ error: VisionError) -> String {
 @Observable @MainActor
 final class SheetViewModel {
     /** Shared native reader also used by generated-seed photo verification. */
-    @ObservationIgnored var reader: PhraseReader = NativePhraseReader()
+    @ObservationIgnored var reader: PhraseReader = NativePhraseReader.shared
 
     /** Debug-only, one-shot opt-in. Ordinary scans, including debug scans, stay lean. */
     private(set) var traceNextScan = false
@@ -167,6 +164,8 @@ final class SheetViewModel {
     // code cannot be interrupted; it holds the scanner until it
     // returns, and returns into nothing.
     @ObservationIgnored private var reading: Task<Void, Never>?
+    /** The attempt whose photo is coming from the library rather than the shutter. */
+    @ObservationIgnored private var documentAttempt: Int?
     @ObservationIgnored private var progressJob: Task<Void, Never>?
     @ObservationIgnored private var progressHandoff: ScanProgressHandoff?
     private(set) var progress: ScanProgressState?
@@ -201,7 +200,6 @@ final class SheetViewModel {
         if let handoff = progressHandoff, handoff.token == token { handoff.presented(sequence: sequence) }
     }
 
-    private(set) var stage: SheetStage = .idle
     private(set) var photo: ResolvedPhoto?
     private(set) var scan: PhraseScan?
     private(set) var draft: PhraseDraft?
@@ -217,7 +215,6 @@ final class SheetViewModel {
 
     func start() {
         forget()
-        stage = .scanning
     }
 
     func forget() {
@@ -227,7 +224,6 @@ final class SheetViewModel {
         stopProgress()
         attempts.cancel()
         reading?.cancel()
-        stage = .idle
         photo = nil
         scan = nil
         draft = nil
@@ -271,6 +267,7 @@ final class SheetViewModel {
      */
     func deliverDocument(item: PhotosPickerItem) {
         let token = begin()
+        documentAttempt = token
         Task { @MainActor in
             let picked = await Self.open(item)
             switch picked {
@@ -337,7 +334,7 @@ final class SheetViewModel {
                 self.attempts.fail(token: token, message: e.message)
                 return
             } catch let e as VisionError {
-                self.attempts.fail(token: token, message: detail(e))
+                self.attempts.fail(token: token, message: e.detail)
                 return
             } catch {
                 if !Task.isCancelled { self.attempts.fail(token: token, message: "The photo could not be read.") }
@@ -362,7 +359,6 @@ final class SheetViewModel {
                 ScanTrace.mark("draft_start")
                 self.draft = self.draftOf(result: result.scan)
                 ScanTrace.mark("draft_end")
-                self.stage = .reviewing
                 self.reviewed = true
                 ScanTrace.mark("review_ready")
             }
@@ -399,6 +395,15 @@ final class SheetViewModel {
     }
 
     /** Drops the current attempt, read or unread, and returns to the camera. */
+    /**
+     * The camera may abandon a shutter callback when the app leaves the
+     * screen. That capture is revoked so returning offers a usable shutter.
+     * A photo still loading from the library is not the camera's and stays.
+     */
+    func revokeAbandonedShutter() {
+        if case let .capturing(token) = attempts.current, token != documentAttempt { retake() }
+    }
+
     func retake() {
         tracedAttempt = nil
         savedDiagnosis = nil
@@ -420,7 +425,6 @@ final class SheetViewModel {
         stopProgress()
         attempts.cancel()
         reading?.cancel()
-        stage = .scanning
         photo = nil
         scan = nil
         draft = nil

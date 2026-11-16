@@ -61,15 +61,6 @@ final class NativeStripReader: StripReader, @unchecked Sendable {
     }
 }
 
-/** The generated error's own words, as Kotlin's message without its `detail=` prefix. */
-func stripVisionDetail(_ error: VisionError) -> String {
-    switch error {
-    case let .Photo(detail), let .Model(detail), let .Scan(detail), let .Qr(detail),
-         let .Recover(detail), let .Phrase(detail), let .Psbt(detail):
-        return detail
-    }
-}
-
 /** A coroutine Mutex for main-actor work: one holder at a time, the rest wait in order. */
 @MainActor
 final class SerialLock {
@@ -110,10 +101,6 @@ final class StripsViewModel {
 
     private(set) var scan: StripScan = .idle
 
-    // Combining two shares can fail after both photographs succeeded;
-    // that failure is the wizard's, not an attempt's.
-    private var combined: Capture?
-
     init() {}
 
     private func stopProgress() {
@@ -142,13 +129,13 @@ final class StripsViewModel {
         if let handoff, handoff.token == token { handoff.presented(sequence: sequence) }
     }
 
-    /** What the current photograph came to, or the last combination's failure. */
+    /** What the current photograph came to. */
     var capture: Capture? {
         switch attempts.current {
         case .capturing, .preparing, .processing: return .reading
         case let .done(_, _, result): return .found(strips: result)
         case let .failed(_, _, message, _): return .failed(message: message)
-        case nil: return combined
+        case nil: return nil
         }
     }
 
@@ -162,7 +149,6 @@ final class StripsViewModel {
         scan = .scanning(held: nil)
         attempts.cancel()
         reading?.cancel()
-        combined = nil
         reviewedStrip = nil
         heldPhoto = nil
         editError = nil
@@ -173,7 +159,6 @@ final class StripsViewModel {
         scan = .idle
         attempts.cancel()
         reading?.cancel()
-        combined = nil
         reviewedStrip = nil
         heldPhoto = nil
     }
@@ -184,7 +169,6 @@ final class StripsViewModel {
     /** A new attempt at the shutter, named for the photo the camera will deliver. */
     func begin() -> Int {
         stopProgress()
-        combined = nil
         reviewedStrip = nil
         editError = nil
         return attempts.begin()
@@ -225,7 +209,7 @@ final class StripsViewModel {
                 self.attempts.fail(token: token, message: e.message)
                 return
             } catch let e as VisionError {
-                self.attempts.fail(token: token, message: stripVisionDetail(e))
+                self.attempts.fail(token: token, message: e.detail)
                 return
             } catch let e as StripProgressError {
                 self.attempts.fail(token: token, message: e.message)
@@ -253,11 +237,19 @@ final class StripsViewModel {
     func savePhoto() async -> String? { await saveRawPhotoForDiagnosis(photo: attempts.photo) }
     func saveCanonicalPhoto() async -> String? { await saveCanonicalPhotoForDiagnosis(photo: attempts.resolvedPhoto) }
 
+    /**
+     * The camera may abandon a shutter callback when the app leaves the
+     * screen. That capture is revoked, keeping a share already held, so
+     * returning offers a usable shutter rather than one waiting for good.
+     */
+    func revokeAbandonedShutter() {
+        if case .capturing = attempts.current { retake() }
+    }
+
     func retake() {
         stopProgress()
         attempts.cancel()
         reading?.cancel()
-        combined = nil
         reviewedStrip = nil
         editError = nil
     }
@@ -326,7 +318,7 @@ final class StripsViewModel {
             scan = .recovered(words: words, first: first, second: second)
             return true
         } catch let e as VisionError {
-            editError = stripVisionDetail(e)
+            editError = e.detail
             return false
         } catch {
             editError = "The shares could not be combined."
@@ -341,14 +333,14 @@ final class StripsViewModel {
             reviewedStrip = try currentStrip(strip: strip).withCell(row: UInt32(row), position: UInt32(position),
                                                                      text: text.uppercased())
             editError = nil
-        } catch let e as VisionError { editError = stripVisionDetail(e) } catch {}
+        } catch let e as VisionError { editError = e.detail } catch {}
     }
 
     func resetCell(strip: StripReading, row: Int, position: Int) {
         do {
             reviewedStrip = try currentStrip(strip: strip).withoutCellEdit(row: UInt32(row), position: UInt32(position))
             editError = nil
-        } catch let e as VisionError { editError = stripVisionDetail(e) } catch {}
+        } catch let e as VisionError { editError = e.detail } catch {}
     }
 
     func correctRow(strip: StripReading, row: Int, text: String) {
@@ -364,7 +356,7 @@ final class StripsViewModel {
             }
             reviewedStrip = next
             editError = nil
-        } catch let e as VisionError { editError = stripVisionDetail(e) } catch {}
+        } catch let e as VisionError { editError = e.detail } catch {}
     }
 
     func combinedReview(strip: StripReading) -> CombinedStripReview? {

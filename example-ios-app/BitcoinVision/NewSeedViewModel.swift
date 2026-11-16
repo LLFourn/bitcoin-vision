@@ -5,7 +5,7 @@ import Observation
 @Observable @MainActor
 final class NewSeedViewModel {
     private let backup = NewSeedBackup()
-    @ObservationIgnored var reader: PhraseReader = NativePhraseReader()
+    @ObservationIgnored var reader: PhraseReader = NativePhraseReader.shared
     @ObservationIgnored var preparer: PhotoPreparer = PhotoPreparer { try resolvePhoto(photo: $0) }
     @ObservationIgnored var generate: () throws -> [String] = { try newPhrase() }
     @ObservationIgnored private let scanning = SerialLock()
@@ -78,7 +78,8 @@ final class NewSeedViewModel {
         progress = events.nextFrame()
         progressWorker = Task { @MainActor [weak self] in
             while !Task.isCancelled {
-                self?.progress = events.nextFrame()
+                guard let self, self.handoff === events, let latest = events.nextFrame() else { break }
+                if self.progress != latest { self.progress = latest }
                 try? await Task.sleep(nanoseconds: UInt64(PROGRESS_FRAME_MS) * 1_000_000)
             }
         }
@@ -101,6 +102,12 @@ final class NewSeedViewModel {
                 try Task.checkCancellation()
                 if !self.backup.prepared(token: token, photo: resolved) { return }
                 await self.scanning.lock()
+                // A retake while this waited its turn cancelled it; a read nobody
+                // wants must not hold the scanner, which cannot be interrupted.
+                if Task.isCancelled || self.backup.attempt?.token != token {
+                    self.scanning.unlock()
+                    return
+                }
                 let result = await Task.detached { () -> Result<PhraseScan, Error> in
                     Result { try reader.scan(photo: resolved, observer: events) }
                 }.value

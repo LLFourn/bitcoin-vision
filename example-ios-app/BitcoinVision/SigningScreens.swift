@@ -35,8 +35,8 @@ struct SignPickScreen: View {
 
     @State private var picking = false
 
-    private func take(_ bytes: Data) {
-        wallets.receive(bytes)
+    private func take(_ file: PsbtFile) {
+        wallets.receive(file)
         onReviewed()
     }
 
@@ -56,9 +56,10 @@ struct SignPickScreen: View {
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.data]) { result in
             guard case let .success(url) = result else { return }
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            if let bytes = try? Data(contentsOf: url) { take(bytes) }
+            // Any file can be chosen, so it is read bounded and off Main.
+            Task {
+                take(await Task.detached { readPsbtFile(at: url) }.value)
+            }
         }
     }
 }

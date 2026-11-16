@@ -54,6 +54,10 @@ targets:
       path: BitcoinVision/Info.plist
       properties:
         CFBundleDisplayName: Bitcoin Vision
+        # Taken from the build settings, so an upload can number its build
+        # without editing this file.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIRequiredDeviceCapabilities: [arm64, still-camera]

@@ -38,6 +38,7 @@ struct SheetScanScreen: View {
 
     @State private var choosing = false
     @State private var picked: PhotosPickerItem?
+    @Environment(\.scenePhase) private var scenePhase
 
     init(viewModel: SheetViewModel, onReviewed: @escaping () -> Void, onExit: @escaping () -> Void) {
         self.viewModel = viewModel
@@ -47,6 +48,9 @@ struct SheetScanScreen: View {
 
     var body: some View {
         content
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .background { viewModel.revokeAbandonedShutter() }
+            }
             // The read ends in the view model; this screen takes the one
             // navigation it asks for and clears the request.
             .onChange(of: viewModel.reviewed, initial: true) { _, reviewed in

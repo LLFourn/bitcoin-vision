@@ -74,13 +74,3 @@ struct StripPhoto: View {
             .accessibilityIdentifier("captured-photo")
     }
 }
-
-struct StripProgressPhoto: View {
-    let photo: ResolvedPhoto
-    let progress: StripProgressState
-    let onPresented: () -> Void
-
-    var body: some View {
-        StripPhoto(photo: photo, review: nil, progress: progress, onPresented: onPresented)
-    }
-}
