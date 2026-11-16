@@ -394,7 +394,6 @@ final class SheetViewModel {
         )
     }
 
-    /** Drops the current attempt, read or unread, and returns to the camera. */
     /**
      * The camera may abandon a shutter callback when the app leaves the
      * screen. That capture is revoked so returning offers a usable shutter.
@@ -404,6 +403,7 @@ final class SheetViewModel {
         if case let .capturing(token) = attempts.current, token != documentAttempt { retake() }
     }
 
+    /** Drops the current attempt, read or unread, and returns to the camera. */
     func retake() {
         tracedAttempt = nil
         savedDiagnosis = nil
