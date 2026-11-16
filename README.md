@@ -91,8 +91,7 @@ cargo run --release -p penlock-scan --features bundled-models,print --example sc
 ## BIP39 word lists
 
 A phrase written out by hand, photographed, turned back into ordered words with
-the evidence for each: the polygon it was read from, the exact crop both models
-saw, the literal OCR text, a probability for every one of the 2048 words, the
+the evidence for each: the polygon it was read from, the literal OCR text, a probability for every one of the 2048 words, the
 branch that chose, and whether the assembled phrase checksums.
 
 <p align="center">
@@ -129,13 +128,17 @@ use bitcoin_vision::words::{Scanner, ScanOptions};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 let scanner = Scanner::bundled()?; // load once, reuse for multiple images
-let photo = std::fs::read("handwritten-words.jpg")?;
-let result = scanner.scan(&photo, ScanOptions::default())?;
+let bytes = std::fs::read("handwritten-words.jpg")?;
+// Decoded once here, so each word's picture can be cut from the same image.
+let photo = bitcoin_vision::words::decode_image(&bytes, None)?;
+let result = scanner.scan_rgb(&photo, ScanOptions::default())?;
 let document = result.document();
 
 for &index in &document.ordered_observations {
     let word = &document.observations[index];
-    // word.selected, word.quad, word.candidates and word.selection
+    // word.selected and word.confidence, word.check (ask the person to confirm),
+    // word.alternatives to offer instead, likeliest first, and word.quad
+    let picture = word.quad.crop(&photo); // the word's picture, for a person to check
     // Do not log wallet phrases in production.
 }
 # Ok(())
@@ -159,8 +162,9 @@ One real phone capture, followed by the scanner's returned boxes:
 
 The ordered output is `shop exhaust erase demand switch powder now fault anchor
 enact rather cook`. This example's checksum passes. It is a demonstration, not
-an accuracy benchmark. Green means native confirmation was accepted; amber means
-review is required. Neither color is a ground-truth correctness assertion.
+an accuracy benchmark. Green means the word's confidence is high enough not to
+ask; amber means `check` is set and a person should confirm it. Neither color is
+a ground-truth correctness assertion.
 
 The phrase is a throwaway made for testing. The included full-resolution
 [example photo](words/examples/photos/handwritten.png) has no EXIF or device
@@ -176,7 +180,7 @@ cargo run --release -p bitcoin-vision-words --features bundled-models --example 
 
 The example writes a metadata-free canonical `photo.png`, self-contained
 `overlay.svg` with numbered words, display-only `preview.png` and `overlay.png`,
-exact recognition `crops/` and structured `result.json`. It refuses to overwrite
+each word's `crops/` picture and structured `result.json`. It refuses to overwrite
 an existing output directory. The two PNG previews reproduce the README images.
 Replace the input path to scan your own image; no private research corpus is needed.
 
@@ -190,8 +194,12 @@ nothing; a null score is an unscored candidate, not a zero.
 ## Coordinates and decisions
 
 Polygons refer to the canonical image after EXIF orientation is applied once,
-and `bitcoin_vision_core::decode_image` hands back that same frame for display. The final polygon is
-the crop both models read, with no added padding. Every classifier candidate is
+and `decode_image` hands back that same frame for display. The final polygon is
+the area both models read, with no added padding. The output carries no image
+bytes: `quad.crop(&photo)` cuts the word's picture for a person to compare with
+the reading. That picture is a reconstruction, not the models' own input. It
+can differ from it in a few pixels, so do not rely on it to reproduce a
+reading. Every classifier candidate is
 retained, `probability` is a model probability and `hybrid_score` is not one,
 and checksum validity never selects a reading order. `document()` projects
 decisions already made rather than running anything again; `diagnostics: true`
@@ -215,7 +223,7 @@ English BIP39 is the only vocabulary here; this is not generic handwriting OCR.
 Low contrast, ambiguous letters, unusual layouts and missing strokes all cause
 mistakes.
 
-Photographs, exact crops and JSON results can hold the entire secret, and
+Photographs, word crops and JSON results can hold the entire secret, and
 callers own their storage and deletion. Nothing is logged, nothing is uploaded,
 and no wallet is created, restored or contacted by these crates.
 

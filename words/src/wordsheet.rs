@@ -1,22 +1,26 @@
-//! The recovery phrase sheet: a printed page with twelve fields for a
-//! phrase, one word per field, laid out so a phone can find the page
-//! by its marks and read each field by its place instead of finding
-//! words in a photo. [`WordSheet`] is the one contract: it says where
-//! the aids, the identity marks and the twelve writable interiors are,
-//! the renderer draws from it, and the locator will read from it. The
-//! frame and number printed beside a field sit outside its interior by
-//! a quiet margin, so an interior holds handwriting and nothing else.
+//! The recovery phrase card: a Penlock band that holds twelve BIP39 words
+//! instead of six symbols a row. It has the share strip's size, corner
+//! squares, rows and look, all from [`bitcoin_vision_forms::band`], so a
+//! phrase and its shares are cut, stored and photographed alike, and a phone
+//! finds either by the same corners. It has no mark field: each row is one
+//! thick-bordered box, and that shape is what makes it a card
+//! ([`ThickRows`]). Each field is cut from inside its own border where the
+//! photo shows it, so a curled card is read where its ink is, not where the
+//! corners alone would put it.
 //!
-//! Coordinates are millimetres in the sheet's own frame, origin at the
-//! frame's top-left corner; the frame sits centred on A4 or Letter.
-//! Nothing secret is ever printed.
+//! Coordinates are millimetres in the band's reading frame. Five cards print
+//! to an A4 page, each back panel behind its card for a long-edge flip.
+//! Nothing secret is ever printed, and the back is for what is not secret:
+//! when, which wallet, whose.
 
+use bitcoin_vision_forms::band::{Band, BandPage, ThickRows};
 use bitcoin_vision_forms::frame::{
-    Frame, Geometry, RECTIFIED_PX_PER_MM, locate_frames, paper_white, read_field,
+    Frame, Geometry, RECTIFIED_PX_PER_MM, locate_frames, paper_white,
 };
-use bitcoin_vision_forms::marks::{Field, decode_with, encode_with};
+#[cfg(feature = "print")]
+use bitcoin_vision_forms::render::flatten;
 use bitcoin_vision_forms::render::{
-    Font, GUIDE, INK, Jitter, LABEL_FONT, Rect, RenderError, TEXT, rasterize, svg_document, text,
+    Font, INK, Jitter, Rect, RenderError, rasterize, svg_document, text,
 };
 use image::{GrayImage, RgbImage};
 use rand::{Rng, SeedableRng};
@@ -27,213 +31,66 @@ use crate::numbering::Numbering;
 use crate::phrase::{PageScan, Reader, WordBox, read_crop};
 use crate::recogniser::Recogniser;
 
-/// The sheet's version, printed in its identity marks.
-pub const VERSION: u8 = 1;
+/// The repository the back's QR code and printed URL point to.
+pub const REPOSITORY_URL: &str = "https://github.com/penlock-io/bitcoin-vision";
 
-/// The id byte the sheet prints in its mark field's top row: another
-/// id than the strips', so a strip reader sees a word sheet as foreign
-/// and a word-sheet reader sees a strip as foreign, each refusing the
-/// other by the same rule that refuses any other project.
-pub const WORD_SHEET_ID: u8 = b'W';
-
-/// The page frame every mark and field is placed in, millimetres.
-pub const FRAME: (f64, f64) = (190.0, 260.0);
-
-/// A paper size the frame is printed on.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Paper {
-    /// 210 × 297 mm.
-    A4,
-    /// 8.5 × 11 inches.
-    Letter,
-}
-
-impl Paper {
-    /// Every paper size.
-    pub const ALL: [Paper; 2] = [Paper::A4, Paper::Letter];
-
-    /// The command-line name.
-    pub fn name(self) -> &'static str {
-        match self {
-            Paper::A4 => "a4",
-            Paper::Letter => "letter",
-        }
-    }
-
-    /// Looks a paper up by name.
-    pub fn from_name(name: &str) -> Option<Paper> {
-        Paper::ALL.into_iter().find(|p| p.name() == name)
-    }
-
-    /// Width and height in millimetres.
-    pub fn size(self) -> (f64, f64) {
-        match self {
-            Paper::A4 => (210.0, 297.0),
-            Paper::Letter => (215.9, 279.4),
-        }
-    }
-
-    /// Where the frame's origin lies on the paper: centred.
-    pub fn frame_origin(self) -> (f64, f64) {
-        let (w, h) = self.size();
-        ((w - FRAME.0) / 2.0, (h - FRAME.1) / 2.0)
-    }
-}
-
-/// The word sheet's geometry.
+/// The card's geometry: a band's, with each row one writable field.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct WordSheet;
 
 impl WordSheet {
-    /// Side of the corner fiducials: the worksheet's, so the same blob
-    /// search finds them.
-    pub const FIDUCIAL: f64 = 7.0;
-    /// Fiducial inset from the frame's edge.
-    pub const INSET: f64 = 4.0;
-    /// Clearance kept free of other ink around fiducials and marks.
-    pub const QUIET: f64 = 2.0;
-    /// Side of a mark-field slot: larger than a strip's, since the
-    /// sheet is photographed from further away.
-    pub const SLOT: f64 = 2.4;
-    /// Fields down the page.
-    pub const FIELDS: usize = 12;
-    /// Top of the first field's interior.
-    pub const FIELDS_TOP: f64 = 40.0;
-    /// Pitch between fields.
-    pub const FIELD_PITCH: f64 = 17.0;
-    /// A field's writable interior.
-    pub const INTERIOR: (f64, f64) = (128.0, 12.0);
-    /// Left edge of the interiors.
-    pub const INTERIOR_LEFT: f64 = 38.0;
-    /// The printed frame sits this far outside the interior, and the
-    /// number this far left of the frame.
-    pub const MARGIN: f64 = 1.0;
+    /// Fields down the card.
+    pub const FIELDS: usize = Band::ROWS;
+    /// A field's interior sits this far inside its printed border: room
+    /// for a crop to reach without taking in the border itself. It is cut
+    /// from where the border was found, so this covers blur, not
+    /// misplacement.
+    pub const MARGIN: f64 = 0.25;
+    /// How far inside the border handwriting is looked for: deeper than the
+    /// interior, since a blurred thick border bleeds dark into its first
+    /// half millimetre and would read as ink along every edge.
+    pub const INK_SEARCH: f64 = 0.6;
+    /// Five cards to an A4 page, the most its 297 mm takes at 51 mm a card.
+    /// Penlock's worksheet spaces four; these keep 4 mm between cut lines.
+    pub const PAGE: BandPage = BandPage {
+        slots: 5,
+        top: 13.0,
+        pitch: 55.0,
+    };
 
-    /// Where the sheet's fiducials, orientation mark and mark field are,
-    /// for finding it in a photo.
+    /// Where the card's fiducials and orientation mark are, for finding it in
+    /// a photo: a band's.
     pub fn geometry(&self) -> Geometry {
-        Geometry {
-            bounds: self.bounds(),
-            fiducials: self.fiducials(),
-            mark: self.mark(),
-            mark_slots: self.mark_slots(),
-        }
+        Band.geometry()
     }
 
-    /// The whole frame.
+    /// The whole card.
     pub fn bounds(&self) -> Rect {
-        Rect {
-            x: 0.0,
-            y: 0.0,
-            w: FRAME.0,
-            h: FRAME.1,
-        }
+        Band.bounds()
     }
 
     /// The four fiducials: top-left, top-right, bottom-left, bottom-right.
     pub fn fiducials(&self) -> [Rect; 4] {
-        let far_x = FRAME.0 - WordSheet::INSET - WordSheet::FIDUCIAL;
-        let far_y = FRAME.1 - WordSheet::INSET - WordSheet::FIDUCIAL;
-        let at = |x, y| Rect {
-            x,
-            y,
-            w: WordSheet::FIDUCIAL,
-            h: WordSheet::FIDUCIAL,
-        };
-        [
-            at(WordSheet::INSET, WordSheet::INSET),
-            at(far_x, WordSheet::INSET),
-            at(WordSheet::INSET, far_y),
-            at(far_x, far_y),
-        ]
+        Band.fiducials()
     }
 
     /// The orientation mark beside the top-left fiducial.
     pub fn mark(&self) -> Rect {
-        Rect {
-            x: 15.5,
-            y: 5.5,
-            w: 4.0,
-            h: 4.0,
-        }
+        Band.mark()
     }
 
-    /// The sixteen mark-field slots, laid out as the strip's are
-    /// (docs/marks.md): eight between the orientation mark and the
-    /// top-right fiducial, eight between the bottom fiducials, left to
-    /// right, [`WordSheet::QUIET`] clear of the dark squares flanking
-    /// them; slot `i` carries bit `i` of the printed field.
-    pub fn mark_slots(&self) -> [Rect; 16] {
-        let side = WordSheet::SLOT;
-        let row = |from: f64, to: f64, centre: f64, i: usize| Rect {
-            x: from + (to - from - side) / 7.0 * i as f64,
-            y: centre - side / 2.0,
-            w: side,
-            h: side,
-        };
-        let mark = self.mark();
-        let [tl, tr, bl, br] = self.fiducials();
-        std::array::from_fn(|i| {
-            if i < 8 {
-                row(
-                    mark.x + mark.w + WordSheet::QUIET,
-                    tr.x - WordSheet::QUIET - side,
-                    tl.y + tl.h / 2.0,
-                    i,
-                )
-            } else {
-                row(
-                    bl.x + bl.w + WordSheet::QUIET,
-                    br.x - WordSheet::QUIET - side,
-                    bl.y + bl.h / 2.0,
-                    i - 8,
-                )
-            }
-        })
-    }
-
-    /// Where the version is printed: under the orientation mark, out
-    /// of every mark's way.
-    pub fn version_anchor(&self) -> (f64, f64) {
-        let mark = self.mark();
-        (mark.x, mark.y + mark.h + 3.0)
-    }
-
-    /// The printed identity: the word sheet's id byte and its version.
-    pub fn field(&self) -> u16 {
-        encode_with(WORD_SHEET_ID, VERSION)
-    }
-
-    /// The writable interiors, in phrase order.
-    pub fn fields(&self) -> [Rect; WordSheet::FIELDS] {
-        std::array::from_fn(|i| Rect {
-            x: WordSheet::INTERIOR_LEFT,
-            y: WordSheet::FIELDS_TOP + WordSheet::FIELD_PITCH * i as f64,
-            w: WordSheet::INTERIOR.0,
-            h: WordSheet::INTERIOR.1,
-        })
-    }
-
-    /// The printed frame around field `i`, just outside its interior.
+    /// The printed border of field `i`: the band's row.
     pub fn frame(&self, i: usize) -> Rect {
-        self.fields()[i].grow(WordSheet::MARGIN)
+        Band.row(i)
     }
 
-    /// Where field `i`'s number is printed: right-aligned, left of the
-    /// frame.
-    pub fn number_anchor(&self, i: usize) -> (f64, f64) {
-        let f = self.frame(i);
-        (f.x - WordSheet::MARGIN - 1.0, f.y + f.h / 2.0)
-    }
-
-    /// The title's centre.
-    pub fn title_center(&self) -> (f64, f64) {
-        (FRAME.0 / 2.0, 22.0)
-    }
-
-    /// The instruction line's centre.
-    pub fn hint_center(&self) -> (f64, f64) {
-        (FRAME.0 / 2.0, 30.0)
+    /// The writable interiors as printed, in phrase order. A photographed
+    /// card's are found from its borders instead ([`ThickRows::interior`]).
+    pub fn fields(&self) -> [Rect; WordSheet::FIELDS] {
+        std::array::from_fn(|i| {
+            self.frame(i)
+                .grow(-(Band::THICK_BORDER + WordSheet::MARGIN))
+        })
     }
 }
 
@@ -248,81 +105,18 @@ pub struct WordFill {
     pub jitter: Option<(Jitter, u64)>,
 }
 
-fn rect(s: &mut String, r: Rect, style: &str) {
-    s.push_str(&format!(
-        "<rect x=\"{:.2}\" y=\"{:.2}\" width=\"{:.2}\" height=\"{:.2}\" {style}/>\n",
-        r.x, r.y, r.w, r.h
-    ));
-}
-
-/// The sheet's SVG elements in the frame's coordinates, blank or with
-/// `fill`'s words, without the `<svg>` wrapper.
-pub fn frame_group(fill: Option<&WordFill>) -> String {
+/// The card's SVG elements in its reading frame, blank or with `fill`'s
+/// words, without the `<svg>` wrapper.
+pub fn card_group(fill: Option<&WordFill>) -> String {
     let t = WordSheet;
     let mut s = String::new();
-    rect(&mut s, t.bounds(), "fill=\"#ffffff\"");
-    for f in t.fiducials() {
-        rect(&mut s, f, &format!("fill=\"{INK}\""));
-    }
-    rect(&mut s, t.mark(), &format!("fill=\"{INK}\""));
-    let field = t.field();
-    for (i, slot) in t.mark_slots().iter().enumerate() {
-        if field >> i & 1 == 1 {
-            rect(&mut s, *slot, &format!("fill=\"{INK}\""));
-        } else {
-            rect(
-                &mut s,
-                *slot,
-                &format!("fill=\"none\" stroke=\"{GUIDE}\" stroke-width=\"0.2\""),
-            );
-        }
-    }
-    let (tx, ty) = t.title_center();
-    s.push_str(&text(
-        tx,
-        ty,
-        6.0,
-        "middle",
-        LABEL_FONT,
-        INK,
-        "Recovery phrase sheet",
-    ));
-    let (hx, hy) = t.hint_center();
-    s.push_str(&text(
-        hx,
-        hy,
-        3.2,
-        "middle",
-        LABEL_FONT,
-        TEXT,
-        "One word per field, lowercase, inside the frame, in pen. Keep this sheet as secret as the words.",
-    ));
-    let (vx, vy) = t.version_anchor();
-    s.push_str(&text(
-        vx,
-        vy,
-        2.6,
-        "start",
-        LABEL_FONT,
-        TEXT,
-        &format!("v{VERSION}"),
-    ));
+    Band.draw_border(&mut s);
+    Band.draw_corners(&mut s);
+    Band.draw_title(&mut s, "BIP39 Phrase");
+    Band.draw_hint(&mut s, "Keep this secret");
     for i in 0..WordSheet::FIELDS {
-        rect(
-            &mut s,
-            t.frame(i),
-            &format!("fill=\"none\" stroke=\"{GUIDE}\" stroke-width=\"0.3\""),
-        );
-        let (nx, ny) = t.number_anchor(i);
-        s.push_str(&text(
-            nx,
-            ny,
-            3.6,
-            "end",
-            LABEL_FONT,
-            TEXT,
-            &format!("{}.", i + 1),
-        ));
+        Band.draw_label(&mut s, i);
+        Band.draw_thick_row(&mut s, i);
     }
     if let Some(fill) = fill {
         let mut rng = fill
@@ -331,10 +125,11 @@ pub fn frame_group(fill: Option<&WordFill>) -> String {
         for (i, word) in fill.words.iter().enumerate().take(WordSheet::FIELDS) {
             let Some(word) = word else { continue };
             let interior = t.fields()[i];
-            // a large hand: the word starts a little in from the left
-            // and its letters stand most of the interior's height
-            let base = interior.h * 0.62;
-            let (cx, cy) = (interior.x + 4.0, interior.y + interior.h / 2.0);
+            // a hand writes at its own size, not the box's: the 4.2 mm the
+            // version-2 card's thin-bordered fields drew, a little in from
+            // the left
+            let base = 4.2;
+            let (cx, cy) = (interior.x + 2.0, interior.y + interior.h / 2.0);
             let (dx, dy, size, angle) = match &mut rng {
                 Some((j, rng)) => (
                     rng.random_range(-j.offset_mm..=j.offset_mm),
@@ -367,30 +162,69 @@ pub fn frame_group(fill: Option<&WordFill>) -> String {
     s
 }
 
-/// The sheet as a self-contained SVG on `paper`, blank or filled.
-pub fn sheet_svg(paper: Paper, fill: Option<&WordFill>) -> String {
-    let (w, h) = paper.size();
-    let (ox, oy) = paper.frame_origin();
-    let body = format!(
-        "<rect x=\"0\" y=\"0\" width=\"{w}\" height=\"{h}\" fill=\"#ffffff\"/>\n<g transform=\"translate({ox:.2} {oy:.2})\">\n{}</g>\n",
-        frame_group(fill)
-    );
+/// The A4 front as a self-contained SVG: blank cards in every place on the
+/// page. Only a cut card is ever filled.
+pub fn front_svg() -> String {
+    let (w, h) = BandPage::PAGE;
+    let card = card_group(None);
+    let mut body = format!("<rect width=\"{w}\" height=\"{h}\" fill=\"#ffffff\"/>\n");
+    for slot in 0..WordSheet::PAGE.slots {
+        body.push_str(&WordSheet::PAGE.place(slot, &card));
+    }
     svg_document(w, h, &body)
 }
 
-/// The blank sheet as a one-page PDF.
+/// The A4 back as a self-contained SVG: behind each card after a long-edge
+/// flip, the band's panel (date, wallet, owner) with a QR code to the
+/// repository and its URL.
 #[cfg(feature = "print")]
-pub fn sheet_pdf(paper: Paper) -> Result<Vec<u8>, RenderError> {
-    bitcoin_vision_forms::pdf::document(&[&sheet_svg(paper, None)], paper.size())
+pub fn back_svg() -> String {
+    let (w, h) = BandPage::PAGE;
+    let modules = qr_modules(REPOSITORY_URL);
+    let mut body = format!("<rect width=\"{w}\" height=\"{h}\" fill=\"#ffffff\"/>\n");
+    for slot in 0..WordSheet::PAGE.slots {
+        WordSheet::PAGE.draw_back_panel(
+            &mut body,
+            slot,
+            "Scanner",
+            REPOSITORY_URL.trim_start_matches("https://"),
+            &modules,
+        );
+    }
+    svg_document(w, h, &body)
 }
 
-/// The sheet rendered at `dpi`, blank or filled.
-pub fn sheet_png(
-    paper: Paper,
-    fill: Option<&WordFill>,
-    dpi: f64,
-) -> Result<image::RgbImage, RenderError> {
-    rasterize(&sheet_svg(paper, fill), dpi)
+/// `text` as QR modules, row-major, dark `true`.
+#[cfg(feature = "print")]
+pub fn qr_modules(text: &str) -> Vec<Vec<bool>> {
+    let code = qrcode::QrCode::new(text.as_bytes()).expect("a URL fits a QR code");
+    let width = code.width();
+    let colors = code.to_colors();
+    colors
+        .chunks(width)
+        .map(|row| row.iter().map(|c| *c == qrcode::Color::Dark).collect())
+        .collect()
+}
+
+/// The card front then back as a two-page A4 PDF, for printing at actual
+/// size on both sides with a long-edge flip.
+#[cfg(feature = "print")]
+pub fn sheet_pdf() -> Result<Vec<u8>, RenderError> {
+    let (w, h) = BandPage::PAGE;
+    let front = flatten(&front_svg(), w, h)?;
+    let back = flatten(&back_svg(), w, h)?;
+    bitcoin_vision_forms::pdf::document(&[&front, &back], BandPage::PAGE)
+}
+
+/// The card cut out along its border, as a self-contained SVG in its
+/// reading frame, blank or filled.
+pub fn card_svg(fill: Option<&WordFill>) -> String {
+    svg_document(Band::WIDTH, Band::LENGTH, &card_group(fill))
+}
+
+/// The cut card rendered at `dpi`, blank or filled.
+pub fn card_png(fill: Option<&WordFill>, dpi: f64) -> Result<RgbImage, RenderError> {
+    rasterize(&card_svg(fill), dpi)
 }
 
 /// Ink in a field's interior is this much darker than the paper.
@@ -401,14 +235,19 @@ const MIN_INK_PIXELS: usize = 50;
 /// The tight box round the ink grows by this much on every side.
 const INK_PAD_MM: f64 = 1.0;
 
-/// The tight box round the handwriting in `interior`, in frame
-/// millimetres, or `None` when the interior is blank.
-fn ink_bounds(rectified: &GrayImage, interior: &Rect, px_per_mm: f64) -> Option<Rect> {
+/// The tight box round the handwriting found in `search`, padded but never
+/// past `interior`, in frame millimetres; `None` when `search` is blank.
+fn ink_bounds(
+    rectified: &GrayImage,
+    search: &Rect,
+    interior: &Rect,
+    px_per_mm: f64,
+) -> Option<Rect> {
     let dark = (paper_white(rectified) * INK_SHARE_OF_WHITE) as u8;
-    let x0 = (interior.x * px_per_mm).round().max(0.0) as u32;
-    let y0 = (interior.y * px_per_mm).round().max(0.0) as u32;
-    let x1 = (((interior.x + interior.w) * px_per_mm).round() as u32).min(rectified.width());
-    let y1 = (((interior.y + interior.h) * px_per_mm).round() as u32).min(rectified.height());
+    let x0 = (search.x * px_per_mm).round().max(0.0) as u32;
+    let y0 = (search.y * px_per_mm).round().max(0.0) as u32;
+    let x1 = (((search.x + search.w) * px_per_mm).round() as u32).min(rectified.width());
+    let y1 = (((search.y + search.h) * px_per_mm).round() as u32).min(rectified.height());
     let (mut count, mut lo_x, mut lo_y, mut hi_x, mut hi_y) =
         (0usize, u32::MAX, u32::MAX, 0u32, 0u32);
     for y in y0..y1 {
@@ -443,26 +282,19 @@ fn ink_bounds(rectified: &GrayImage, interior: &Rect, px_per_mm: f64) -> Option<
 }
 
 stage! {
-    /// Whether `gray` shows one recovery phrase sheet of this version: its
-    /// fiducials and orientation mark found as one frame, and its mark
-    /// field decoding to the sheet's id and version. A strip, an ordinary
-    /// page or any other marks give `None`. The sheet comes back with its
-    /// face-on view for the fields to be cut from.
-    pub fn identify(gray: &GrayImage) -> Option<(Frame, GrayImage)> {
-        let geometry = WordSheet.geometry();
-        let located = match locate_frames(gray, geometry) {
+    /// Whether `gray` shows one recovery phrase card: one band found by its
+    /// corner squares and orientation mark, whose twelve rows all show their
+    /// thick borders. A strip, an ordinary page or anything else gives
+    /// `None`. The card comes back with its face-on view and where each
+    /// row's border was found, for the fields to be cut from.
+    pub fn identify(gray: &GrayImage) -> Option<(Frame, GrayImage, ThickRows)> {
+        let located = match locate_frames(gray, WordSheet.geometry()) {
             Ok(mut all) if all.len() == 1 => all.remove(0),
             _ => return None,
         };
         let rectified = located.rectify(gray, RECTIFIED_PX_PER_MM);
-        let field = read_field(&rectified, &geometry);
-        if field.count_ones() <= 1 {
-            return None;
-        }
-        match decode_with(WORD_SHEET_ID, field) {
-            Field::Own { number } if number == VERSION => Some((located, rectified)),
-            _ => None,
-        }
+        let rows = ThickRows::find(&rectified, RECTIFIED_PX_PER_MM)?;
+        Some((located, rectified, rows))
     }
 }
 
@@ -492,16 +324,31 @@ stage! {
     ) -> Result<Option<(PageScan, Vec<crate::progress::FinalRegion>)>, String> {
         use crate::progress::{RegionState, Stage};
         let gray = image::DynamicImage::ImageRgb8(photo.clone()).into_luma8();
-        let Some((located, rectified)) = identify(&gray) else {
+        let Some((located, rectified, rows)) = identify(&gray) else {
             return Ok(None);
         };
+        crate::progress::emit(observer, || {
+            let card = WordSheet.bounds();
+            crate::progress::Event::Form {
+                outline: [
+                    (card.x, card.y),
+                    (card.x + card.w, card.y),
+                    (card.x + card.w, card.y + card.h),
+                    (card.x, card.y + card.h),
+                ]
+                .map(|(x, y)| {
+                    let (px, py) = located.to_photo(x, y);
+                    (px as f32, py as f32)
+                }),
+            }
+        });
         let mut progress = Stage::geometry(observer, WordSheet::FIELDS);
-        let quads: Vec<_> = WordSheet
-            .fields()
-            .iter()
-            .enumerate()
-            .map(|(i, interior)| {
-                let tight = ink_bounds(&rectified, interior, RECTIFIED_PX_PER_MM).unwrap_or(*interior);
+        let quads: Vec<_> = (0..WordSheet::FIELDS)
+            .map(|i| {
+                let interior = rows.interior(i, WordSheet::MARGIN);
+                let search = rows.interior(i, WordSheet::INK_SEARCH);
+                let tight = ink_bounds(&rectified, &search, &interior, RECTIFIED_PX_PER_MM)
+                    .unwrap_or(interior);
                 let corners = [
                     (tight.x, tight.y),
                     (tight.x + tight.w, tight.y),

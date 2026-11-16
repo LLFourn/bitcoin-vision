@@ -100,13 +100,19 @@ private val Uncertain = Color(0xFF808080)
 private val LeftOut = Color(0xFFB0B2B6)
 private val LowConfidence = Color(0xFF808080)
 
-/** Below this the review marks a word with a warning sign, since grey alone cannot. */
-internal const val UNSURE_BELOW = 0.85f
+/** The scanner asks for this word to be checked: it read the word and its
+ * Check flag is set, or the word shown is not the one it read. The review
+ * marks these with a warning sign, since grey alone cannot. */
+internal val Entry.unsure: Boolean
+    get() = modelConfidence != null && source?.let { it.accepted && it.read == word } != true
+
+/** A chance as a whole percent, never rounded up to a certainty it isn't. */
+internal fun wholePercent(p: Float): Int = if (p >= 0.995f && p < 1f) 99 else Math.round(p * 100)
 
 /** One palette for row confidence and the corresponding polygon on the photo. */
 internal fun confidenceColour(entry: Entry): Color = when {
     entry.modelConfidence == null -> LeftOut
-    entry.modelConfidence!! >= UNSURE_BELOW -> Accepted
+    !entry.unsure -> Accepted
     entry.modelConfidence!! >= 0.5f -> Uncertain
     else -> LowConfidence
 }
@@ -396,6 +402,12 @@ fun ReviewScreen(
                 Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     run {
                         Spacer(Modifier.height(8.dp))
+                        Text(
+                            if (scan.layout == Layout.WORD_SHEET) "Read from a recovery phrase card"
+                            else "Read as a page of words",
+                            style = MaterialTheme.typography.titleSmall,
+                            modifier = Modifier.testTag("scan-source"),
+                        )
                         PhotoWithBoxes(
                             photo, scan.width.toInt(), scan.height.toInt(),
                             draft.entries, draft.reviewLeftOut, viewModel.highlighted,
@@ -740,8 +752,8 @@ internal fun WordRow(
         Column(Modifier.weight(1f)) {
             val confidence = entry.modelConfidence
             val confidenceText = confidence?.let {
-                "Model confidence ${String.format(Locale.ROOT, "%.1f%%", it * 100)}"
-            } ?: "Model confidence unavailable"
+                "Confidence ${wholePercent(it)}%" + if (entry.unsure) ", check this word" else ""
+            } ?: "Confidence unavailable"
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     entry.word,
@@ -750,11 +762,11 @@ internal fun WordRow(
                     modifier = Modifier.weight(1f).testTag("row-$number-word"),
                 )
                 Text(
-                    confidence?.let { "${if (it < UNSURE_BELOW) "⚠️ " else ""}${(it * 100).toInt()}%" } ?: "?",
+                    confidence?.let { "${if (entry.unsure) "⚠️ " else ""}${wholePercent(it)}%" } ?: "?",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = confidenceColour(entry),
-                    modifier = Modifier.clearAndSetSemantics { },
+                    modifier = Modifier.clearAndSetSemantics { contentDescription = confidenceText },
                 )
             }
             LinearProgressIndicator(
@@ -859,9 +871,9 @@ private fun EditSheet(
                 )
                 OcrEvidence(source)
                 Text(
-                    "Model's top candidate: ${source.ranked.first().first} " +
-                        String.format(Locale.ROOT, "%.2f%%", source.probability * 100) +
-                        ". Initially shown as \"${source.read}\". Other possibilities:",
+                    "Read as \"${source.read}\", " +
+                        String.format(Locale.ROOT, "%.1f%%", source.confidence * 100) +
+                        " likely. Other possibilities, likeliest first:",
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.testTag("word-confidence"),
                 )
@@ -871,7 +883,7 @@ private fun EditSheet(
                     }
                 }
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    for ((word, p) in source.ranked.take(5)) {
+                    for ((word, p) in listOf(source.read to source.confidence) + source.alternatives) {
                         FilterChip(
                             selected = entry.word == word,
                             onClick = { choose(word) },

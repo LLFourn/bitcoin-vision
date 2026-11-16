@@ -155,6 +155,14 @@ impl Scanner {
             .map_err(ScanError::Model)
     }
 
+    stage! {
+        /// The text recogniser this scanner reads with, for research that
+        /// checks how it was prepared.
+        pub fn recogniser(&self) -> &Recogniser {
+            &self.recogniser
+        }
+    }
+
     /// A scanner over models the caller already built, for a caller that
     /// loads them its own way: the phone prepares its recogniser for its
     /// hardware, the research harness picks its own files.
@@ -300,6 +308,12 @@ impl Scan<'_> {
     /// Runs the scan to its end on this thread and returns how it ended,
     /// which is also the last thing its [`ScanState`] records.
     pub fn run(self) -> Outcome<Words> {
+        self.run_keeping_photo().0
+    }
+
+    /// [`run`](Self::run), handing the photo back: the image the result's
+    /// quads are in, for [`Quad::crop`](crate::Quad::crop) or for display.
+    pub fn run_keeping_photo(self) -> (Outcome<Words>, RgbImage) {
         let _cancellable = self.emitter.cancellation().enter();
         let recorder = Recorder(&self.emitter);
         let outcome: Outcome<Words> = match self.read(&recorder) {
@@ -316,7 +330,9 @@ impl Scan<'_> {
         self.emitter
             .push(delta)
             .expect("only run ends the record, and it runs once");
-        outcome
+        drop(recorder);
+        drop(_cancellable);
+        (outcome, self.photo)
     }
 
     fn read(&self, recorder: &Recorder<'_>) -> Result<ScanResult, ScanError> {
@@ -453,6 +469,7 @@ impl crate::progress::Observer for Recorder<'_> {
                 completed,
                 total,
             },
+            Event::Form { outline } => Delta::Form { outline },
             Event::Region(r) => Delta::Region {
                 id: r.id,
                 region: WordRegion {

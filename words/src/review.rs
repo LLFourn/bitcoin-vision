@@ -8,9 +8,7 @@ use crate::fragments::{Decision, Ownership};
 use crate::numbering::{Numbering, dotted::ListMode};
 use crate::phrase::WordBox;
 use crate::sources::{Outcome, RawSource};
-use crate::words::Verdict;
-use crate::{Found, ScanError, ScanResult, Word};
-use image::ImageFormat;
+use crate::{Found, Quad, ScanError, ScanResult, Word};
 
 /// The whole finished page, including inactive observations for restoration.
 #[derive(Clone, Debug)]
@@ -49,21 +47,27 @@ pub struct ReviewPage {
     pub sources: Vec<ReviewSource>,
 }
 
-/// One observed word and its exact model crop.
+/// One observed word.
 #[derive(Clone, Debug)]
 pub struct ReviewWord {
-    /// Four corners in canonical photo pixels.
-    pub quad: [(f32, f32); 4],
-    /// The five saved classifier candidates in model rank order.
+    /// Where the word is in the photo. [`Quad::crop`] cuts a picture of it,
+    /// which is not the models' own input.
+    pub quad: Quad,
+    /// The word model's own five likeliest words, in its order: diagnostic
+    /// evidence, not the alternatives to offer.
     pub ranked: Vec<(&'static str, f32)>,
-    /// Whether the native calibration accepted the selected word.
-    pub accepted: bool,
     /// Selected BIP39 word, absent on an unread geometry-only observation.
     pub selected: Option<&'static str>,
+    /// The chance `selected` is right; zero when nothing was selected.
+    pub confidence: f32,
+    /// Whether a person should confirm `selected`: its confidence is below
+    /// the calibration's `check_below`. Always true when nothing was selected.
+    pub check: bool,
+    /// Other words to offer in its place, likeliest first, each with its
+    /// confidence on the same scale. Never includes `selected`.
+    pub alternatives: Vec<(&'static str, f32)>,
     /// Literal OCR of the selected crop, if OCR ran.
     pub raw: Option<String>,
-    /// Exact grayscale crop bytes encoded losslessly as PNG.
-    pub crop_png: Vec<u8>,
     /// Pre-cut OCR evidence when a crop was narrowed.
     pub original: Option<ReviewOriginal>,
     /// Text chosen for word matching, distinct from literal OCR.
@@ -93,13 +97,11 @@ pub struct ReviewParent {
     pub stray: bool,
 }
 
-/// The exact OCR crop retained before an adopted narrowing.
+/// Where OCR read before an adopted narrowing, and what it read there.
 #[derive(Clone, Debug)]
 pub struct ReviewOriginal {
     /// Original corners in canonical photo pixels.
-    pub quad: [(f32, f32); 4],
-    /// Exact original grayscale crop, encoded as PNG.
-    pub crop_png: Vec<u8>,
+    pub quad: Quad,
     /// Literal read of that original crop.
     pub raw: String,
 }
@@ -119,7 +121,7 @@ pub struct ReviewMatching {
 #[derive(Clone, Debug)]
 pub struct ReviewLabel {
     /// Source geometry in canonical photo pixels.
-    pub quad: [(f32, f32); 4],
+    pub quad: Quad,
     /// Verbatim OCR text including punctuation.
     pub literal: String,
     /// Whole prefix, token, standalone, or beside-word source.
@@ -161,7 +163,7 @@ pub struct ReviewSource {
     /// Stable index in accepted detector output.
     pub detector_id: u32,
     /// Original polygon in canonical photo pixels.
-    pub quad: [(f32, f32); 4],
+    pub quad: Quad,
     /// Original split parts, including suppressed geometry.
     pub parts: Vec<ReviewPart>,
     /// Why no split part was returned, if relevant.
@@ -186,7 +188,7 @@ pub struct ReviewPart {
     /// Stable part index within its raw source.
     pub part: u32,
     /// Original polygon.
-    pub quad: [(f32, f32); 4],
+    pub quad: Quad,
     /// Original reading index, absent for suppressed ink.
     pub word_index: Option<u32>,
 }
@@ -206,9 +208,9 @@ pub struct ReviewOwner {
 #[derive(Clone, Debug)]
 pub struct ReviewUnion {
     /// Union polygon in canonical photo pixels.
-    pub quad: [(f32, f32); 4],
+    pub quad: Quad,
     /// Rounded read footprint checked against neighbors.
-    pub read_footprint: [(f32, f32); 4],
+    pub read_footprint: Quad,
     /// Actual alternative reading, absent if not read.
     pub word_index: Option<u32>,
     /// Whether selected over the original parent.
@@ -234,7 +236,7 @@ pub struct ReviewBox {
     /// Stable identity, not a phrase position.
     pub id: u32,
     /// Four corners in canonical photo pixels.
-    pub quad: [(f32, f32); 4],
+    pub quad: Quad,
 }
 
 impl ScanResult {
@@ -251,21 +253,17 @@ impl ScanResult {
                 .into_iter()
                 .map(|b| ReviewBox {
                     id: b.id,
-                    quad: b.quad.0,
+                    quad: b.quad,
                 })
                 .collect(),
         })
     }
 
-    /// Projects saved review data, including exact model crops, without rerunning
-    /// detection, recognition, selection, or ordering.
-    pub fn review(&self) -> Result<ReviewPage, ScanError> {
+    /// Projects saved review data without rerunning detection, recognition,
+    /// selection, or ordering.
+    pub fn review(&self) -> ReviewPage {
         let scan = &self.page;
-        let words = scan
-            .words
-            .iter()
-            .map(review_word)
-            .collect::<Result<_, _>>()?;
+        let words = scan.words.iter().map(review_word).collect();
         let initial = scan.initial_traversal();
         let numbering = match &scan.numbering {
             Numbering::None => ReviewNumbering::None,
@@ -285,7 +283,7 @@ impl ScanResult {
                 detail: detail.clone(),
             },
         };
-        Ok(ReviewPage {
+        ReviewPage {
             found: self.found,
             width: scan.width,
             height: scan.height,
@@ -302,45 +300,36 @@ impl ScanResult {
             order_basis: initial.basis,
             sources: review_sources(&scan.sources),
             words,
-        })
+        }
     }
 }
 
-fn png(crop: &image::GrayImage) -> Result<Vec<u8>, ScanError> {
-    let mut bytes = Vec::new();
-    crop.write_to(&mut std::io::Cursor::new(&mut bytes), ImageFormat::Png)
-        .map_err(|error| ScanError::Processing(format!("encoding exact review crop: {error}")))?;
-    Ok(bytes)
-}
-
-fn review_word(word: &WordBox) -> Result<ReviewWord, ScanError> {
-    let original = word
-        .evidence
-        .original
-        .as_ref()
-        .map(|read| {
-            Ok::<_, ScanError>(ReviewOriginal {
-                quad: read.quad.0,
-                crop_png: png(&read.crop)?,
-                raw: read.raw.text.clone(),
-            })
-        })
-        .transpose()?;
-    Ok(ReviewWord {
-        quad: word.quad.0,
+fn review_word(word: &WordBox) -> ReviewWord {
+    let original = word.evidence.original.as_ref().map(|read| ReviewOriginal {
+        quad: read.quad.clone(),
+        raw: read.raw.text.clone(),
+    });
+    ReviewWord {
+        quad: word.quad.clone(),
         ranked: word
             .ranked
             .iter()
             .take(5)
             .filter_map(|&(i, p)| Word::from_index(i as u16).map(|word| (word.as_str(), p)))
             .collect(),
-        accepted: word.verdict() == Verdict::Accept,
+        confidence: word.selection.as_ref().map_or(0.0, |s| s.confidence() as f32),
+        check: word.selection.as_ref().is_none_or(|s| s.check()),
+        alternatives: word.selection.as_ref().map_or(Vec::new(), |s| {
+            s.alternatives()
+                .iter()
+                .filter_map(|&(i, p)| Word::from_index(i as u16).map(|w| (w.as_str(), p as f32)))
+                .collect()
+        }),
         selected: word
             .pick()
             .and_then(|i| Word::from_index(i as u16))
             .map(|w| w.as_str()),
         raw: word.raw.as_ref().map(|read| read.text.clone()),
-        crop_png: png(&word.crop)?,
         original,
         matching: word.evidence.matching.as_ref().map(|m| ReviewMatching {
             text: m.text.clone(),
@@ -352,7 +341,7 @@ fn review_word(word: &WordBox) -> Result<ReviewWord, ScanError> {
             .labels
             .iter()
             .map(|label| ReviewLabel {
-                quad: label.corners,
+                quad: Quad(label.corners),
                 literal: label.literal.clone(),
                 origin: label.origin.clone(),
                 ordinal: label.ordinal,
@@ -378,7 +367,7 @@ fn review_word(word: &WordBox) -> Result<ReviewWord, ScanError> {
                 stray: p.stray,
             })
             .collect(),
-    })
+    }
 }
 
 fn review_sources(sources: &[RawSource]) -> Vec<ReviewSource> {
@@ -395,13 +384,13 @@ fn review_sources(sources: &[RawSource]) -> Vec<ReviewSource> {
             };
             ReviewSource {
                 detector_id: source.detector as u32,
-                quad: source.quad.0,
+                quad: source.quad.clone(),
                 parts: source
                     .parts()
                     .iter()
                     .map(|p| ReviewPart {
                         part: p.part as u32,
-                        quad: p.quad.0,
+                        quad: p.quad.clone(),
                         word_index: p.word_index.map(|i| i as u32),
                     })
                     .collect(),
@@ -431,8 +420,8 @@ fn review_sources(sources: &[RawSource]) -> Vec<ReviewSource> {
                             },
                         ..
                     }) => Some(ReviewUnion {
-                        quad: union.0,
-                        read_footprint: footprint.0,
+                        quad: union.clone(),
+                        read_footprint: footprint.clone(),
                         word_index: source
                             .union
                             .as_ref()

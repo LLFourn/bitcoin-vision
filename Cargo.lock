@@ -188,9 +188,9 @@ dependencies = [
  "bitcoin-vision-core",
  "image",
  "imageproc",
+ "miniz_oxide",
  "pdf-writer",
  "resvg",
- "svg2pdf",
 ]
 
 [[package]]
@@ -204,6 +204,7 @@ dependencies = [
  "bitcoin_hashes",
  "image",
  "imageproc",
+ "qrcode",
  "rand 0.9.5",
  "serde",
  "serde_json",
@@ -1191,6 +1192,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+
+[[package]]
 name = "quick-error"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1611,19 +1618,6 @@ checksum = "ad3df9b59e2eded8d825c7c4363ad339a20fb6bc0b9a4778560f518f59910b15"
 dependencies = [
  "hashbrown 0.16.1",
  "serde",
-]
-
-[[package]]
-name = "svg2pdf"
-version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e50dc062439cc1a396181059c80932a6e6bd731b130e674c597c0c8874b6df22"
-dependencies = [
- "log",
- "miniz_oxide",
- "once_cell",
- "pdf-writer",
- "usvg",
 ]
 
 [[package]]
