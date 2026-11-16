@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -27,6 +28,8 @@ fun LoadKeyScreen(
     }
     WalletPage("Scan your words", onBack, titleTag = "load-title") {
         Text(wallet.name, style = MaterialTheme.typography.titleLarge)
+        Text(wallet.fingerprint, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = PlexMono),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Scan your words to send", modifier = Modifier.testTag("key-status"))
         Text(
             when (task) {
@@ -38,7 +41,8 @@ fun LoadKeyScreen(
             modifier = Modifier.testTag("load-purpose"),
         )
         wallets.notice?.takeIf { it.walletId == id }?.let {
-            Text(it.text, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("notice"))
+            Text(ERROR_MARK + it.text, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("notice"))
         }
         Button(onClick = onScanPhrase, modifier = Modifier.fillMaxWidth().testTag("scan-phrase")) {
             Text("Scan a written phrase")

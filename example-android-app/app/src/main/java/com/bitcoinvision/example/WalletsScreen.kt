@@ -29,13 +29,13 @@ import androidx.compose.ui.unit.dp
 const val SAFETY_LINE = "Keys are held in memory only. This phone never saves recovery words."
 
 @Composable
-fun WalletsScreen(wallets: WalletsViewModel, onAdd: () -> Unit, onOpen: (String) -> Unit) {
+fun WalletsScreen(wallets: WalletsViewModel, onAdd: (String?) -> Unit, onOpen: (String) -> Unit) {
     var naming by remember { mutableStateOf(false) }
     if (naming) {
         NameNewWalletDialog(
             numbered = wallets.numberedName(),
             onDismiss = { naming = false },
-            onChosen = { name -> naming = false; wallets.nameNext(name); onAdd() },
+            onChosen = { name -> naming = false; onAdd(name) },
         )
     }
     WalletPage("Wallets", floatingAction = {
@@ -58,8 +58,8 @@ fun WalletsScreen(wallets: WalletsViewModel, onAdd: () -> Unit, onOpen: (String)
                         headlineContent = { Text(wallet.name) },
                         supportingContent = {
                             Text(
-                                if (loaded) "Ready to send" else "Words not scanned",
-                                style = MaterialTheme.typography.bodyMedium,
+                                "${wallet.fingerprint} · ${if (loaded) "Ready to send" else "Words not scanned"}",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = PlexMono),
                                 modifier = Modifier.testTag("wallet-$i-status"),
                             )
                         },

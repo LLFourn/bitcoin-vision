@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
@@ -189,7 +190,9 @@ private fun CaptureResult(viewModel: StripsViewModel, capture: Capture, onRecove
                                             .background(if (cell.position < 2u) MaterialTheme.colorScheme.secondaryContainer
                                                 else Color.Transparent)
                                             .testTag("strip-cell-${rowIndex + 1}-${cell.position + 1u}")) {
-                                        Text(shown, color = when {
+                                        val weak = cell.replacement == null &&
+                                            (cell.unread || (cell.probability ?: 0f) < 0.75f)
+                                        Text(shown, fontWeight = if (weak) FontWeight.Bold else null, color = when {
                                             cell.unread && cell.replacement == null -> MaterialTheme.colorScheme.error
                                             cell.replacement != null -> MaterialTheme.colorScheme.tertiary
                                             (cell.probability ?: 0f) < 0.75f -> MaterialTheme.colorScheme.error
@@ -223,7 +226,8 @@ private fun CaptureResult(viewModel: StripsViewModel, capture: Capture, onRecove
                             CombinedRowStatus.EXACT -> "word code matches combined reading"
                             CombinedRowStatus.CORRECTED -> "word code corrects symbol ${row.position!! + 1u}: ${row.observed} → ${row.expected}"
                             CombinedRowStatus.NEEDS_REVIEW -> "ambiguous or weak reading; check both strips"
-                        }, color = if (row.status == CombinedRowStatus.NEEDS_REVIEW) MaterialTheme.colorScheme.error
+                        }, fontWeight = if (row.status == CombinedRowStatus.NEEDS_REVIEW) FontWeight.Bold else null,
+                            color = if (row.status == CombinedRowStatus.NEEDS_REVIEW) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.onSurface)
                     }
                     if (flagged) Row(Modifier.clickable { acknowledged = !acknowledged }) {
@@ -231,7 +235,9 @@ private fun CaptureResult(viewModel: StripsViewModel, capture: Capture, onRecove
                         Text("I checked every corrected or uncertain row against both paper strips.")
                     }
                 }
-                viewModel.editError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                viewModel.editError?.let {
+                    Text(ERROR_MARK + it, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                }
             }
             SavePhotoForDiagnosis { viewModel.savePhoto() }
             if (viewModel.attempts.resolvedPhoto != null) {

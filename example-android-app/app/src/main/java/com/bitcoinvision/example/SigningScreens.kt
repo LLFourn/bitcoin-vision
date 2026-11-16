@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import android.content.Context
 import android.content.Intent
 import android.util.Base64
@@ -72,7 +73,8 @@ fun SignPickScreen(
     }
     QrScanScreen("Show Sparrow's QR code", onPsbt = take, onExit = onBack) {
         Text(
-            "First make the transaction in Sparrow, then scan its QR code.",
+            "First make the transaction in Sparrow, then scan its QR code. " +
+                "Review first, then sign. Nothing is broadcast.",
             color = Color.White,
             style = MaterialTheme.typography.bodyLarge,
             modifier = Modifier.background(CameraScrim).padding(horizontal = 12.dp, vertical = 8.dp)
@@ -144,7 +146,8 @@ fun ReviewPsbtScreen(
             }) {
                 SigningBody {
                     Text(
-                        signing.reason, style = MaterialTheme.typography.titleMedium,
+                        ERROR_MARK + signing.reason, style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("refusal"),
                     )
                     Text("Nothing was signed.", color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -5,6 +5,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -32,7 +34,7 @@ fun App(
     // keeping the original caller beneath it rather than obsolete review pages.
     val reviewIncoming = {
         val route = nav.currentBackStack.value.firstOrNull {
-            it.destination.route in setOf("sign/pick", "sign/scan", "sign/review", "sign/signed")
+            it.destination.route in setOf("sign/pick", "sign/review", "sign/signed")
         }?.destination?.route
         if (nav.currentBackStack.value.any { it.arguments?.getString("task") == "sign" }) {
             sheet.forget()
@@ -64,6 +66,10 @@ fun App(
     }
     // The wallet page opens the camera directly; other callers go through the
     // method chooser. Leaving a scan returns to whichever of the two sent it.
+    // The name chosen as adding began, held by the add entry while it is on the stack.
+    val addingName = {
+        runCatching { nav.getBackStackEntry(ADD_WALLET_ROUTE).arguments?.getString("name") }.getOrNull()
+    }
     val viaChooser = { purpose: String, task: String ->
         nav.currentBackStack.value.any {
             it.destination.route == "load/{id}/{task}" &&
@@ -72,7 +78,7 @@ fun App(
     }
     val leave = { purpose: String, task: String ->
         when {
-            purpose == ADD -> nav.popBackStack("add", false)
+            purpose == ADD -> nav.popBackStack(ADD_WALLET_ROUTE, false)
             viaChooser(purpose, task) -> nav.popBackStack(loadRoute(purpose, task), false)
             else -> nav.popBackStack("wallet/$purpose", false)
         }
@@ -81,7 +87,7 @@ fun App(
     val accept = { purpose: String, task: String, words: List<String>, source: KeySource ->
         sheet.forget()
         if (purpose == ADD) {
-            val id = wallets.take(words, source)
+            val id = wallets.take(words, source, addingName())
             if (id != null) open(id) else leave(purpose, task)
         } else {
             val loaded = wallets.loadInto(purpose, words, source)
@@ -114,11 +120,14 @@ fun App(
         composable("wallets") {
             WalletsScreen(
                 wallets,
-                onAdd = { nav.navigate("add") },
+                onAdd = { name -> nav.navigate(addWalletRoute(name)) },
                 onOpen = { id -> nav.navigate("wallet/$id") },
             )
         }
-        composable("add") {
+        composable(
+            ADD_WALLET_ROUTE,
+            arguments = listOf(navArgument("name") { type = NavType.StringType; nullable = true; defaultValue = null }),
+        ) {
             AddWalletScreen(
                 onNewKey = {
                     if (creation.start()) nav.navigate("new/backup")
@@ -164,8 +173,8 @@ fun App(
         }
         composable("new/backup") {
             NewSeedScreen(creation,
-                onCancel = { creation.cancel(); nav.popBackStack("add", false) },
-                onComplete = { wallets.completeNew(creation)?.let(open) },
+                onCancel = { creation.cancel(); nav.popBackStack(ADD_WALLET_ROUTE, false) },
+                onComplete = { wallets.completeNew(creation, addingName())?.let(open) },
             )
         }
         composable("wallet/{id}/receive") { entry ->
@@ -204,16 +213,6 @@ fun App(
                 wallets,
                 onReviewed = { reviewIncoming() },
                 onBack = { nav.popBackStack() },
-            )
-        }
-        composable("sign/scan") {
-            QrScanScreen(
-                "Scan the transaction",
-                onPsbt = { bytes ->
-                    wallets.receive(bytes)
-                    reviewIncoming()
-                },
-                onExit = { nav.popBackStack() },
             )
         }
         composable("sign/review") {

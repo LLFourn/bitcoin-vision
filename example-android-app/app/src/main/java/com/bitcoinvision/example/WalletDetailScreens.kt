@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.widthIn
@@ -135,7 +136,8 @@ fun ReceiveScreen(wallets: WalletsViewModel, id: String, onBack: () -> Unit) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         if (failed && addresses.isEmpty()) {
-            Text("This wallet's addresses could not be worked out.", color = MaterialTheme.colorScheme.error)
+            Text(ERROR_MARK + "This wallet's addresses could not be worked out.", fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.error)
         }
         LazyColumn(Modifier.weight(1f).testTag("addresses"), state = list) {
             itemsIndexed(addresses) { i, address ->
@@ -219,6 +221,8 @@ fun KeyControlsScreen(
     }
     WalletPage("Secret words", onBack) {
         Text(wallet.name, style = MaterialTheme.typography.titleLarge)
+        Text(wallet.fingerprint, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = PlexMono),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(
             if (key == null) "Scan your words to send" else "Ready to send",
             style = MaterialTheme.typography.titleMedium,

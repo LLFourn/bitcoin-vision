@@ -112,6 +112,10 @@ internal val Dark = darkColorScheme(
     onErrorContainer = Chalk,
 )
 
+/** The theme has no error hue, so an error is set apart by bold weight,
+ * and a message that is nothing but an error also leads with this mark. */
+const val ERROR_MARK = "✕ "
+
 /** White camera instructions retain contrast even over a white preview. */
 internal val CameraScrim = Color.Black.copy(alpha = 0.65f)
 

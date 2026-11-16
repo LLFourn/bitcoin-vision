@@ -76,8 +76,6 @@ class WalletsViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var signing by mutableStateOf<Signing?>(null)
         private set
-    /** The name chosen before adding, for the next wallet saved; null keeps the numbered one. */
-    private var pendingName: String? = null
 
     fun wallet(id: String): WalletRecord? = wallets.firstOrNull { it.id == id }
 
@@ -89,11 +87,6 @@ class WalletsViewModel(app: Application) : AndroidViewModel(app) {
         wallets[index] = wallets[index].copy(name = trimmed)
         store.save(wallets)
         return true
-    }
-
-    /** Names the next wallet saved, chosen as adding begins; null gives it the numbered name. */
-    fun nameNext(name: String?) {
-        pendingName = name?.let(::normalizedWalletName)
     }
 
     /** The name a new wallet gets when none is chosen. */
@@ -123,16 +116,15 @@ class WalletsViewModel(app: Application) : AndroidViewModel(app) {
      * its key now loaded, or a new one saved with its key loaded. The
      * wallet's id, or null when the words are not a phrase.
      */
-    fun take(words: List<String>, source: KeySource): String? {
+    fun take(words: List<String>, source: KeySource, name: String? = null): String? {
         if (source == KeySource.New) return null
-        return saveKey(words, source)
+        return saveKey(words, source, name)
     }
 
-    private fun saveKey(words: List<String>, source: KeySource): String? {
+    private fun saveKey(words: List<String>, source: KeySource, name: String?): String? {
         val derived = derive(words) ?: return null
         val existing = wallets.firstOrNull { it.descriptor == derived.descriptor }
-        val chosen = pendingName
-        pendingName = null
+        val chosen = name?.let(::normalizedWalletName)
         if (existing != null) {
             keys[existing.id] = LoadedKey(words, source)
             val kept = if (chosen != null && chosen != existing.name) ", so it keeps that name" else ""
@@ -156,9 +148,9 @@ class WalletsViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** The only generated-key completion path consumes one verified photo session. */
-    fun completeNew(creation: NewSeedViewModel): String? {
+    fun completeNew(creation: NewSeedViewModel, name: String? = null): String? {
         val words = creation.consumeVerified() ?: return null
-        return saveKey(words, KeySource.New)
+        return saveKey(words, KeySource.New, name)
     }
 
     /** Loads `words` as `id`'s key. Another wallet's phrase is refused by fingerprint. */

@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import android.app.Activity
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
@@ -90,6 +91,7 @@ private fun BackupWordReview(model: NewSeedViewModel, onCancel: () -> Unit, onCo
     val ready = model.stage == NewSeedStage.Verified
     TaskPage("Review the words", onCancel, actions = {
         Text(model.message ?: "Retake your written backup.",
+            fontWeight = if (ready) null else FontWeight.Bold,
             color = if (ready) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
             modifier = Modifier.testTag("backup-status"))
         Button(onClick = onComplete, enabled = ready,

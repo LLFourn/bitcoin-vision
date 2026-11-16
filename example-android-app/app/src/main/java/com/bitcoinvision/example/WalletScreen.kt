@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -160,6 +161,7 @@ fun WalletScreen(
         },
     ) {
         KeyCard(
+            fingerprint = wallet.fingerprint,
             key = key,
             onUnload = requestUnload,
         )
@@ -172,7 +174,8 @@ fun WalletScreen(
         }
         wallets.notice?.takeIf { it.walletId == id }?.let { notice ->
             Text(
-                notice.text,
+                if (notice.refusal) ERROR_MARK + notice.text else notice.text,
+                fontWeight = if (notice.refusal) FontWeight.Bold else null,
                 color = if (notice.refusal) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.testTag("notice"),
             )
@@ -284,7 +287,7 @@ fun WalletScreen(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun KeyCard(key: LoadedKey?, onUnload: () -> Unit) {
+private fun KeyCard(fingerprint: String, key: LoadedKey?, onUnload: () -> Unit) {
     val loaded = key != null
     // The dismiss state remembers its confirm lambda across recompositions, so it reads through
     // these rather than capturing a stale key or callback.
@@ -355,6 +358,12 @@ private fun KeyCard(key: LoadedKey?, onUnload: () -> Unit) {
                             modifier = Modifier.testTag("key-status"),
                         )
                     }
+                    Text(
+                        fingerprint,
+                        style = MaterialTheme.typography.titleSmall.copy(fontFamily = PlexMono),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.testTag("fingerprint"),
+                    )
                     if (current != null) {
                         Text(
                             current.source.provenance(),

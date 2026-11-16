@@ -379,6 +379,7 @@ fun ReviewScreen(
                 Text(
                     viewModel.status(),
                     style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (passes) null else FontWeight.Bold,
                     color = if (passes) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error,
                     modifier = Modifier.weight(1f).testTag("status")
                         .semantics { liveRegion = LiveRegionMode.Polite },
@@ -450,6 +451,7 @@ fun ReviewScreen(
                             Text(
                                 note,
                                 style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = if (draft.numbers is Numbers.Inconsistent) FontWeight.Bold else null,
                                 color = if (draft.numbers is Numbers.Inconsistent) MaterialTheme.colorScheme.error
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.testTag("numbering"),
@@ -700,8 +702,9 @@ private fun InsertRow(at: Int, onInsert: () -> Unit, missing: Int? = null) {
     ) {
         if (missing != null) {
             Text(
-                "Word $missing was not found: insert it here",
+                ERROR_MARK + "Word $missing was not found: insert it here",
                 style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.testTag("missing-$missing"),
             )
@@ -805,6 +808,7 @@ internal fun WordRow(
             Text(
                 if (correct) "✓ Correct" else if (acknowledged) "✗ Wrong\nAcknowledged" else "✗ Wrong",
                 color = if (correct) Accepted else MaterialTheme.colorScheme.error,
+                fontWeight = if (correct) null else FontWeight.Bold,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.testTag("match-$number"),
             )

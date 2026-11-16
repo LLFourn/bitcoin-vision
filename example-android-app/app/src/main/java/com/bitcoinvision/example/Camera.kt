@@ -1,5 +1,6 @@
 package com.bitcoinvision.example
 
+import androidx.compose.ui.text.font.FontWeight
 import android.Manifest
 import android.content.Context
 import android.graphics.ImageFormat
@@ -346,8 +347,9 @@ fun CapturedPhotoScreen(
             }
             if (error != null) {
                 Text(
-                    error,
+                    ERROR_MARK + error,
                     style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.testTag("read-error"),
                 )
