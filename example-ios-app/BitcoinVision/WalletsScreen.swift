@@ -5,13 +5,37 @@ let SAFETY_LINE = "Keys are held in memory only. This phone never saves recovery
 
 struct WalletsScreen: View {
     let wallets: WalletsViewModel
-    let onAdd: () -> Void
+    let onAdd: (String?) -> Void
     let onOpen: (String) -> Void
 
+    @State private var naming = false
+    @State private var name = ""
+
+    private func startNaming() {
+        name = ""
+        naming = true
+    }
+
     var body: some View {
+        page
+            // Asked as adding begins, so the wallet is saved under its name. Skipping keeps the numbered one.
+            .alert("Name your wallet", isPresented: $naming) {
+                TextField(wallets.numberedName(), text: $name)
+                    .accessibilityIdentifier("new-wallet-name-input")
+                Button("Next") { onAdd(name) }
+                    .disabled(normalizedWalletName(input: name) == nil)
+                    .accessibilityIdentifier("new-wallet-name-next")
+                Button("Skip", role: .cancel) { onAdd(nil) }
+                    .accessibilityIdentifier("new-wallet-name-skip")
+            } message: {
+                Text("1–40 characters. You can change it later.")
+            }
+    }
+
+    private var page: some View {
         WalletPage(title: "Wallets", actions: { EmptyView() }, floatingAction: {
             if !wallets.wallets.isEmpty {
-                Button(action: onAdd) {
+                Button(action: startNaming) {
                     Label("Add wallet", systemImage: "plus")
                         .font(.labelLarge)
                         .padding(.horizontal, 20)
@@ -27,7 +51,7 @@ struct WalletsScreen: View {
             if wallets.wallets.isEmpty {
                 Text("Your wallet, on paper").font(.headlineSmall)
                 Text("Create one, or scan one from paper.").accessibilityIdentifier("empty")
-                Button("Add a wallet", action: onAdd)
+                Button("Add a wallet", action: startNaming)
                     .buttonStyle(.primary)
                     .fixedSize()
                     .accessibilityIdentifier("add-wallet")
@@ -41,7 +65,7 @@ struct WalletsScreen: View {
                                     .foregroundStyle(Palette.onSurfaceVariant)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(wallet.name).font(.bodyLarge).foregroundStyle(Palette.onSurface)
-                                    Text("\(wallet.fingerprint) · \(loaded ? "key loaded" : "key not loaded")")
+                                    Text("\(wallet.fingerprint) · \(loaded ? "Ready to send" : "Words not scanned")")
                                         .font(Typeface.mono(14, relativeTo: .callout))
                                         .foregroundStyle(Palette.onSurfaceVariant)
                                         .accessibilityIdentifier("wallet-\(i)-status")

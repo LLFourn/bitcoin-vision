@@ -206,7 +206,7 @@ private struct CaptureResult: View {
                             }
                         }
                         if let error = viewModel.editError {
-                            Text(error).font(.bodyLarge).foregroundStyle(Palette.error)
+                            Text(ERROR_MARK + error).font(.bodyLarge).foregroundStyle(Palette.error)
                         }
                     }
                     SavePhotoForDiagnosis { await viewModel.savePhoto() }

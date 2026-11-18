@@ -17,6 +17,23 @@ final class WalletNameTests: XCTestCase {
         XCTAssertNil(normalizedWalletName(input: String(repeating: "x", count: 41)))
     }
 
+    @MainActor
+    func test_a_name_from_an_abandoned_adding_never_reaches_the_next_wallet() {
+        let nav = Navigator()
+        nav.navigate(.add(name: "Travel"))
+        XCTAssertEqual("Travel", newWalletName(chosen: nav.addingName, numbered: "Wallet 2"))
+        // Backing out drops that entry; the next adding starts its own.
+        nav.popBackStack()
+        XCTAssertNil(nav.addRoute)
+        nav.navigate(.add(name: nil))
+        XCTAssertEqual("Wallet 2", newWalletName(chosen: nav.addingName, numbered: "Wallet 2"))
+        nav.popBackStack()
+        nav.navigate(.add(name: "Savings"))
+        nav.navigate(.newBackup)
+        XCTAssertEqual("Savings", newWalletName(chosen: nav.addingName, numbered: "Wallet 2"))
+        XCTAssertEqual("Wallet 2", newWalletName(chosen: "  \t", numbered: "Wallet 2"))
+    }
+
     func test_supplementary_characters_count_once() {
         let symbol = "\u{1F3D5}"
         XCTAssertEqual(String(repeating: symbol, count: 40), normalizedWalletName(input: String(repeating: symbol, count: 40)))

@@ -10,10 +10,10 @@ final class WalletPageTests: XCTestCase {
     }
 
     func test_the_unloaded_primary_is_the_camera_under_the_old_load_tag() {
-        XCTAssertEqual("Scan phrase", Primary.scan.label)
+        XCTAssertEqual("Scan your words", Primary.scan.label)
         XCTAssertEqual("load-wallet-key", Primary.scan.tag)
-        XCTAssertEqual("Sign a transaction", Primary.sign.label)
-        XCTAssertEqual("Back up this wallet", Primary.backUp.label)
+        XCTAssertEqual("Send", Primary.sign.label)
+        XCTAssertEqual("Make share strips", Primary.backUp.label)
         XCTAssertEqual("Review transaction", Primary.review.label)
     }
 
@@ -21,12 +21,12 @@ final class WalletPageTests: XCTestCase {
         XCTAssertEqual("from written phrase", KeySource.writtenPhrase.provenance())
         XCTAssertEqual("from strips 1 and 3", KeySource.strips(first: 3, second: 1).provenance())
         XCTAssertEqual("made on this phone", KeySource.new.provenance())
-        XCTAssertEqual("Backup not checked", backupLabel(checked: nil))
-        XCTAssertEqual("Backup checked 3 Sep 2026", backupLabel(checked: "2026-09-03"))
+        XCTAssertEqual("No strips yet", backupLabel(checked: nil))
+        XCTAssertEqual("Strips checked 3 Sep 2026", backupLabel(checked: "2026-09-03"))
     }
 
     func test_every_fixed_line_on_the_wallet_pages_is_at_most_one_sentence() {
-        let lines = [BACKUP_WARNING_LINE, SAFETY_LINE] + Primary.allCases.map(\.label) +
+        let lines = [BACKUP_WARNING_LINE, STRIPS_LINE, SAFETY_LINE] + Primary.allCases.map(\.label) +
             [backupLabel(checked: nil), KeySource.new.provenance()]
         for line in lines {
             var trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)

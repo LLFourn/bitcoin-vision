@@ -350,7 +350,7 @@ struct CapturedPhotoScreen<Extra: View>: View {
                 VStack(alignment: .leading, spacing: 12) {
                     photoView
                     if let error {
-                        Text(error)
+                        Text(ERROR_MARK + error)
                             .font(.bodyLarge)
                             .foregroundStyle(Palette.error)
                             .accessibilityIdentifier("read-error")

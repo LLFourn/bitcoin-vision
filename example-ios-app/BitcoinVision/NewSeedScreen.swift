@@ -1,12 +1,14 @@
 import SwiftUI
 
-// The Android screen sets FLAG_SECURE here; the app's privacy cover already does that job globally.
+// The Android screen sets FLAG_SECURE here in every build. Release builds
+// cover the whole app; a debug build covers this screen alone.
 struct NewSeedScreen: View {
     let model: NewSeedViewModel
     let onCancel: () -> Void
     let onComplete: () -> Void
 
     @Environment(\.scenePhase) private var scenePhase
+    @State private var cover = PrivacyCover()
 
     var body: some View {
         content
@@ -15,6 +17,10 @@ struct NewSeedScreen: View {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background && model.capturing { model.retake() }
             }
+            #if DEBUG
+            .onAppear { cover.install() }
+            .onDisappear { cover.uninstall() }
+            #endif
     }
 
     @ViewBuilder private var content: some View {
@@ -105,7 +111,7 @@ private struct BackupWordReview: View {
                         Text("Reading order (choose the layout on your paper)")
                             .font(.bodyLarge)
                         HStack(spacing: 8) {
-                            ForEach([Order.numbers, .columns, .rows].filter { model.availableOrders.contains($0) },
+                            ForEach([Order.columns, .rows, .numbers].filter { model.availableOrders.contains($0) },
                                     id: \.self) { order in
                                 orderChip(order)
                             }
@@ -195,6 +201,9 @@ private struct BackupWordReview: View {
                             }
                             .buttonStyle(.primary)
                             .accessibilityIdentifier("acknowledge-word")
+                        } else {
+                            Button("Close") { inspecting = nil }
+                                .buttonStyle(.primary)
                         }
                         Button("Retake photo") {
                             inspecting = nil
@@ -207,11 +216,6 @@ private struct BackupWordReview: View {
                 }
                 .navigationTitle("Word \(position + 1)")
                 .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Close") { inspecting = nil }
-                    }
-                }
             }
             .presentationDetents([.medium, .large])
         }

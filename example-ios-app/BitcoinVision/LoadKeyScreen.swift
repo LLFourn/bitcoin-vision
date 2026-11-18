@@ -11,15 +11,15 @@ struct LoadKeyScreen: View {
 
     var body: some View {
         if let wallet = wallets.wallet(id: id) {
-            WalletPage(title: "Load key", onBack: onBack, titleTag: "load-title") {
+            WalletPage(title: "Scan your words", onBack: onBack, titleTag: "load-title") {
                 Text(wallet.name).font(.titleLarge)
                 Text(wallet.fingerprint).font(Typeface.mono(14, relativeTo: .callout))
-                Text("Key not loaded").accessibilityIdentifier("key-status")
+                Text("Scan your words to send").accessibilityIdentifier("key-status")
                 Text(purpose)
                     .foregroundStyle(Palette.onSurfaceVariant)
                     .accessibilityIdentifier("load-purpose")
                 if let notice = wallets.notice, notice.walletId == id {
-                    Text(notice.text)
+                    Text(ERROR_MARK + notice.text)
                         .foregroundStyle(Palette.error)
                         .accessibilityIdentifier("notice")
                 }
@@ -37,9 +37,9 @@ struct LoadKeyScreen: View {
 
     private var purpose: String {
         switch task {
-        case "sign": return "After loading, you return to the review and tap Sign."
-        case "backup": return "After loading, you write a new set of three strips."
-        default: return "From your written phrase or any two strips."
+        case "sign": return "After scanning, you go back to the transaction and tap Sign."
+        case "backup": return "After scanning, you write a new set of three strips."
+        default: return "From your 12 written words or any two strips."
         }
     }
 }

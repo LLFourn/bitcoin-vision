@@ -9,10 +9,26 @@ private let Uncertain = Color(red: 0xF9 / 255, green: 0xA8 / 255, blue: 0x25 / 2
 private let LeftOut = Color(red: 0x9E / 255, green: 0x9E / 255, blue: 0x9E / 255)
 private let LowConfidence = Color(red: 0xB3 / 255, green: 0x26 / 255, blue: 0x1E / 255)
 
+extension Entry {
+    /** The scanner asks for this word to be checked: it read the word and its
+     * Check flag is set, or the word shown is not the one it read. The review
+     * marks these with a warning sign. */
+    var unsure: Bool {
+        guard modelConfidence != nil else { return false }
+        guard let source else { return true }
+        return !(source.accepted && source.read == word)
+    }
+}
+
+/** A chance as a whole percent, never rounded up to a certainty it isn't. */
+func wholePercent(_ p: Float) -> Int {
+    p >= 0.995 && p < 1 ? 99 : Int((p * 100).rounded())
+}
+
 /** One palette for row confidence and the corresponding polygon on the photo. */
 func confidenceColour(entry: Entry) -> Color {
     guard let confidence = entry.modelConfidence else { return LeftOut }
-    if let source = entry.source, source.accepted && source.read == entry.word { return Accepted }
+    if !entry.unsure { return Accepted }
     return confidence >= 0.5 ? Uncertain : LowConfidence
 }
 
@@ -621,7 +637,7 @@ private struct InsertRow: View {
     var body: some View {
         HStack {
             if let missing {
-                Text("Word \(missing) was not found: insert it here")
+                Text(ERROR_MARK + "Word \(missing) was not found: insert it here")
                     .font(.labelMedium)
                     .foregroundStyle(Palette.error)
                     .accessibilityIdentifier("missing-\(missing)")
@@ -671,20 +687,27 @@ struct WordRow: View {
                     .frame(minWidth: 32, alignment: .leading)
                     .accessibilityIdentifier("row-\(number)-label")
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(entry.word)
-                        .font(Typeface.mono(22, relativeTo: .title3))
-                        .foregroundStyle(Palette.onSurface)
-                        .accessibilityIdentifier("row-\(number)-word")
                     let confidence = entry.modelConfidence
                     let confidenceText = confidence.map {
-                        "Confidence " + String(format: "%.1f%%", locale: rootLocale, Double($0) * 100)
+                        "Confidence \(wholePercent($0))%" + (entry.unsure ? ", check this word" : "")
                     } ?? "Confidence unavailable"
+                    HStack(alignment: .center) {
+                        Text(entry.word)
+                            .font(Typeface.mono(22, relativeTo: .title3))
+                            .foregroundStyle(Palette.onSurface)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .accessibilityIdentifier("row-\(number)-word")
+                        Text(confidence.map { "\(entry.unsure ? "⚠️ " : "")\(wholePercent($0))%" } ?? "?")
+                            .font(.headlineLarge)
+                            .fontWeight(.bold)
+                            .foregroundStyle(confidenceColour(entry: entry))
+                            .accessibilityLabel(confidenceText)
+                    }
                     ProgressView(value: Double(confidence ?? 0))
                         .tint(confidenceColour(entry: entry))
                         .padding(.vertical, 4)
                         .accessibilityLabel(confidenceText)
                         .accessibilityIdentifier("confidence-\(number)")
-                    Text(confidenceText).font(.labelSmall).foregroundStyle(Palette.onSurface)
                     if showCrop {
                         if let source = entry.source {
                             Crop(png: source.cropPng)

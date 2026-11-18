@@ -96,6 +96,9 @@ final class WalletsViewModel {
         return true
     }
 
+    /** The name a new wallet gets when none is chosen. */
+    func numberedName() -> String { "Wallet \(nextNumber())" }
+
     func needsBackupWarning(id: String) -> Bool {
         key(id: id)?.source == .new && wallet(id: id)?.penlockBackup == nil
     }
@@ -118,21 +121,27 @@ final class WalletsViewModel {
      * its key now loaded, or a new one saved with its key loaded. The
      * wallet's id, or nil when the words are not a phrase.
      */
-    func take(words: [String], source: KeySource) -> String? {
+    func take(words: [String], source: KeySource, name: String? = nil) -> String? {
         if source == .new { return nil }
-        return saveKey(words, source)
+        return saveKey(words, source, name)
     }
 
-    private func saveKey(_ words: [String], _ source: KeySource) -> String? {
+    private func saveKey(_ words: [String], _ source: KeySource, _ name: String?) -> String? {
         guard let derived = derive(words) else { return nil }
+        let chosen = name.flatMap { normalizedWalletName(input: $0) }
         if let existing = wallets.first(where: { $0.descriptor == derived.descriptor }) {
             keys[existing.id] = LoadedKey(words: words, source: source)
-            notice = Notice(walletId: existing.id, text: "Already here as \(existing.name). Its key is loaded.", refusal: false)
+            let kept = chosen != nil && chosen != existing.name ? ", so it keeps that name" : ""
+            notice = Notice(
+                walletId: existing.id,
+                text: "This wallet is already here as \(existing.name)\(kept). Its key is loaded.",
+                refusal: false
+            )
             return existing.id
         }
         let record = WalletRecord(
             id: UUID().uuidString.lowercased(),
-            name: "Wallet \(nextNumber())",
+            name: newWalletName(chosen: name, numbered: numberedName()),
             fingerprint: derived.fingerprint,
             descriptor: derived.descriptor,
             created: isoToday(),
@@ -147,9 +156,9 @@ final class WalletsViewModel {
     }
 
     /** The only generated-key completion path consumes one verified photo session. */
-    func completeNew(creation: NewSeedViewModel) -> String? {
+    func completeNew(creation: NewSeedViewModel, name: String? = nil) -> String? {
         guard let words = creation.consumeVerified() else { return nil }
-        return saveKey(words, .new)
+        return saveKey(words, .new, name)
     }
 
     /** Loads `words` as `id`'s key. Another wallet's phrase is refused by fingerprint. */
@@ -160,8 +169,8 @@ final class WalletsViewModel {
         if derived.descriptor != wallet.descriptor {
             notice = Notice(
                 walletId: id,
-                text: "That is not this wallet's key: its fingerprint is \(derived.fingerprint), " +
-                    "this wallet's is \(wallet.fingerprint).",
+                text: "Those words are for a different wallet (fingerprint \(derived.fingerprint), " +
+                    "this one is \(wallet.fingerprint)).",
                 refusal: true
             )
             return false

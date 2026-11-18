@@ -23,9 +23,9 @@ enum Primary: CaseIterable, Equatable, Hashable {
     var label: String {
         switch self {
         case .review: return "Review transaction"
-        case .backUp: return "Back up this wallet"
-        case .sign: return "Sign a transaction"
-        case .scan: return "Scan phrase"
+        case .backUp: return "Make share strips"
+        case .sign: return "Send"
+        case .scan: return "Scan your words"
         }
     }
 
@@ -60,7 +60,7 @@ extension KeySource {
 }
 
 func backupLabel(checked: String?) -> String {
-    checked.map { "Backup checked \(prettyDate(iso: $0))" } ?? "Backup not checked"
+    checked.map { "Strips checked \(prettyDate(iso: $0))" } ?? "No strips yet"
 }
 
 /** A swipe counts only when the card has travelled almost its whole width. */
@@ -74,8 +74,10 @@ func unloadRequested(offset: Float, width: Int, loaded: Bool) -> Bool {
     loaded && width > 0 && -offset >= Float(width) * UNLOAD_TRAVEL
 }
 
-/** The wallet page's only fixed explanatory line; the rest is state and refusals. */
-let BACKUP_WARNING_LINE = "Only on this phone until it is backed up."
+/** What share strips are, wherever the wallet page offers them. */
+let STRIPS_LINE = "Split your words into 3 strips: any 2 bring your wallet back."
+
+let BACKUP_WARNING_LINE = "Share strips keep your wallet safe even if one paper is lost."
 
 struct WalletScreen: View {
     let wallets: WalletsViewModel
@@ -85,6 +87,7 @@ struct WalletScreen: View {
     let onScan: () -> Void
     let onStrips: () -> Void
     let onConnect: () -> Void
+    let onReceive: () -> Void
     let onBackUp: () -> Void
     let onSign: () -> Void
     let onReview: () -> Void
@@ -140,7 +143,7 @@ struct WalletScreen: View {
                 Text(BACKUP_WARNING_LINE).font(.bodyMedium).foregroundStyle(Palette.onSurfaceVariant)
             }
             if let notice = wallets.notice, notice.walletId == id {
-                Text(notice.text)
+                Text(notice.refusal ? ERROR_MARK + notice.text : notice.text)
                     .foregroundStyle(notice.refusal ? Palette.error : Palette.onSurface)
                     .accessibilityIdentifier("notice")
             }
@@ -148,13 +151,27 @@ struct WalletScreen: View {
                 Color.clear.frame(width: 0, height: 0).accessibilityIdentifier("waiting")
             }
             VStack(spacing: 4) {
-                Button(action: go) {
-                    Text(primary.label)
-                        .id(primary)
-                        .transition(.opacity)
+                // Send and Receive are always here; Send waits for the words to be scanned.
+                HStack(spacing: 8) {
+                    Button(Primary.sign.label, action: onSign)
+                        .buttonStyle(.primary)
+                        .disabled(key == nil)
+                        .accessibilityIdentifier(Primary.sign.tag)
+                    Button("Receive", action: onReceive)
+                        .buttonStyle(.primary)
+                        .accessibilityIdentifier("receive")
                 }
-                .buttonStyle(.primary)
-                .accessibilityIdentifier(primary.tag)
+                // Anything else the wallet needs first: a waiting review, a backup, or the words.
+                if primary != .sign {
+                    Button(action: go) {
+                        Text(primary.label)
+                            .id(primary)
+                            .transition(.opacity)
+                    }
+                    .buttonStyle(.primary)
+                    .padding(.top, 4)
+                    .accessibilityIdentifier(primary.tag)
+                }
                 if primary == .scan {
                     Button("Use share strips", action: onStrips)
                         .buttonStyle(.secondary)
@@ -164,7 +181,7 @@ struct WalletScreen: View {
             .animation(Motion.state, value: primary)
             WalletCard(fill: Palette.surface, outlined: true) {
                 if primary != .backUp {
-                    WalletLink(title: "Back up on paper", tag: "back-up", onClick: onBackUp) {
+                    WalletLink(title: "Make share strips", tag: "back-up", onClick: onBackUp, supporting: STRIPS_LINE) {
                         Text(backupLabel(checked: wallet.penlockBackup))
                             .font(.labelMedium)
                             .foregroundStyle(Palette.onSurfaceVariant)
@@ -174,7 +191,7 @@ struct WalletScreen: View {
                 }
                 WalletLink(title: "Connect to Sparrow", tag: "connect", onClick: onConnect)
                     .padding(.horizontal, 16)
-                WalletLink(title: "Key controls", tag: "key-controls", onClick: onKeys)
+                WalletLink(title: "Secret words", tag: "key-controls", onClick: onKeys)
                     .padding(.horizontal, 16)
             }
             .animation(Motion.state, value: primary)
@@ -273,7 +290,7 @@ private struct KeyCard: View {
             if offset < 0 {
                 HStack {
                     Spacer()
-                    Text("Unload").font(.labelLarge)
+                    Text("Forget words").font(.labelLarge)
                 }
                 .padding(.horizontal, 20)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -290,7 +307,7 @@ private struct KeyCard: View {
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("key-card")
         .accessibilityActions {
-            if loaded { Button("Unload key", action: onUnload) }
+            if loaded { Button("Forget words", action: onUnload) }
         }
     }
 
@@ -300,7 +317,7 @@ private struct KeyCard: View {
                 Circle()
                     .fill(loaded ? Palette.primary : Palette.outline)
                     .frame(width: 10, height: 10)
-                Text(loaded ? "Key loaded" : "Key not loaded")
+                Text(loaded ? "Ready to send" : "Scan your words to send")
                     .font(Typeface.mono(24, relativeTo: .title2))
                     .accessibilityIdentifier("key-status")
             }
@@ -314,7 +331,7 @@ private struct KeyCard: View {
                     .foregroundStyle(Palette.onSurfaceVariant)
                 HStack(spacing: 0) {
                     Image(systemName: "chevron.left")
-                    Text("swipe to unload").font(.labelMedium)
+                    Text("swipe to forget words").font(.labelMedium)
                 }
                 .foregroundStyle(Palette.onSurfaceVariant)
             }
@@ -332,13 +349,13 @@ struct UnloadWarningDialog: ViewModifier {
     let onUnload: () -> Void
 
     func body(content: Content) -> some View {
-        content.alert("Unload a key with no paper backup?", isPresented: $isPresented) {
-            Button("Unload key", role: .destructive, action: onUnload)
+        content.alert("Forget your words before backing up?", isPresented: $isPresented) {
+            Button("Forget words", role: .destructive, action: onUnload)
                 .accessibilityIdentifier("confirm-unload")
-            Button("Keep key loaded", role: .cancel, action: onKeep)
+            Button("Keep them", role: .cancel, action: onKeep)
                 .accessibilityIdentifier("cancel-unload")
         } message: {
-            Text("You will need a backup you can recover from to load it again.")
+            Text("To send again, you will need your words on paper.")
         }
     }
 }

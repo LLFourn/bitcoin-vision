@@ -21,7 +21,7 @@ final class SnackbarState {
     }
 }
 
-private struct SnackbarHost: View {
+struct SnackbarHost: View {
     let state: SnackbarState?
 
     var body: some View {
@@ -43,7 +43,7 @@ private struct SnackbarHost: View {
 }
 
 /** The back control the app's pages share, so every page leaves the same way. */
-private struct BackButton: View {
+struct BackButton: View {
     let action: () -> Void
 
     var body: some View {
@@ -173,12 +173,19 @@ struct WalletLink<Trailing: View>: View {
     let title: String
     let tag: String
     let onClick: () -> Void
+    /** One short line under the title saying what the row is for. */
+    var supporting: String? = nil
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
         Button(action: onClick) {
             HStack {
-                Text(title).font(.bodyLarge).foregroundStyle(Palette.onSurface)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.bodyLarge).foregroundStyle(Palette.onSurface)
+                    if let supporting {
+                        Text(supporting).font(.bodyMedium).foregroundStyle(Palette.onSurfaceVariant)
+                    }
+                }
                 Spacer(minLength: 12)
                 trailing()
             }

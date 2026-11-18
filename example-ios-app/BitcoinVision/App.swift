@@ -18,7 +18,7 @@ struct AppRoot: View {
         NavigationStack(path: $nav.path) {
             WalletsScreen(
                 wallets: wallets,
-                onAdd: { nav.navigate(.add) },
+                onAdd: { name in nav.navigate(.add(name: name)) },
                 onOpen: { id in nav.navigate(.wallet(id: id)) }
             )
             .navigationDestination(for: Route.self) { route in
@@ -38,7 +38,7 @@ struct AppRoot: View {
 
     // MARK: Flow decisions
 
-    private static let signingRoutes: [Route] = [.signPick, .signScan, .signReview, .signSigned]
+    private static let signingRoutes: [Route] = [.signPick, .signReview, .signSigned]
 
     /**
      * Replace the entire signing visit, including nested key loading, while
@@ -76,7 +76,8 @@ struct AppRoot: View {
     @discardableResult
     private func leave(_ purpose: String, _ task: String) -> Bool {
         if purpose == Purpose.add {
-            return nav.popBackStack(.add)
+            guard let addRoute = nav.addRoute else { return false }
+            return nav.popBackStack(addRoute)
         } else if viaChooser(purpose, task) {
             return nav.popBackStack(.load(id: purpose, task: task))
         } else {
@@ -88,7 +89,7 @@ struct AppRoot: View {
     private func accept(_ purpose: String, _ task: String, _ words: [String], _ source: KeySource) {
         sheet.forget()
         if purpose == Purpose.add {
-            if let id = wallets.take(words: words, source: source) {
+            if let id = wallets.take(words: words, source: source, name: nav.addingName) {
                 open(id)
             } else {
                 leave(purpose, task)
@@ -123,7 +124,7 @@ struct AppRoot: View {
         case .wallets:
             WalletsScreen(
                 wallets: wallets,
-                onAdd: { nav.navigate(.add) },
+                onAdd: { name in nav.navigate(.add(name: name)) },
                 onOpen: { id in nav.navigate(.wallet(id: id)) }
             )
         case .add:
@@ -154,6 +155,7 @@ struct AppRoot: View {
                     nav.navigate(.stripsScan(purpose: id, task: "wallet"))
                 },
                 onConnect: { nav.navigate(.connect(id: id)) },
+                onReceive: { nav.navigate(.receive(id: id)) },
                 onBackUp: {
                     if wallets.key(id: id) == nil {
                         nav.navigate(.load(id: id, task: "backup"))
@@ -169,12 +171,14 @@ struct AppRoot: View {
                 model: creation,
                 onCancel: {
                     creation.cancel()
-                    nav.popBackStack(.add)
+                    if let addRoute = nav.addRoute { nav.popBackStack(addRoute) }
                 },
                 onComplete: {
-                    if let id = wallets.completeNew(creation: creation) { open(id) }
+                    if let id = wallets.completeNew(creation: creation, name: nav.addingName) { open(id) }
                 }
             )
+        case .receive(let id):
+            ReceiveScreen(wallets: wallets, id: id, onBack: { nav.popBackStack() })
         case .connect(let id):
             ConnectWalletScreen(wallets: wallets, id: id, onBack: { nav.popBackStack() })
         case .keys(let id):
@@ -199,18 +203,8 @@ struct AppRoot: View {
         case .signPick:
             SignPickScreen(
                 wallets: wallets,
-                onScanQr: { nav.navigate(.signScan) },
                 onReviewed: { reviewIncoming() },
                 onBack: { nav.popBackStack() }
-            )
-        case .signScan:
-            QrScanScreen(
-                title: "Scan the transaction",
-                onPsbt: { bytes in
-                    wallets.receive(bytes)
-                    reviewIncoming()
-                },
-                onExit: { nav.popBackStack() }
             )
         case .signReview:
             ReviewPsbtScreen(
@@ -238,7 +232,7 @@ struct AppRoot: View {
         case .sheetReview(let purpose, let task):
             ReviewScreen(
                 viewModel: sheet,
-                action: purpose == Purpose.add ? "Add wallet" : "Load key",
+                action: purpose == Purpose.add ? "Add wallet" : "Use these words",
                 onAccept: {
                     if let words = sheet.confirmed() {
                         accept(purpose, task, words, .writtenPhrase)

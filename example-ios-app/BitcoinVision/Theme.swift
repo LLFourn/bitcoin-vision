@@ -48,6 +48,10 @@ enum Palette {
     static let cameraScrim = Color.black.opacity(0.65)
 }
 
+/** An error is set apart by bold weight as well as colour, and a message
+ * that is nothing but an error also leads with this mark. */
+let ERROR_MARK = "✕ "
+
 /** The worksheet's face (IBM Plex Mono) and its sans companion for prose. */
 enum Typeface {
     static let monoName = "IBMPlexMono-Regular"

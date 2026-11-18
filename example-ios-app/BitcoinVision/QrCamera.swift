@@ -10,14 +10,16 @@ import UIKit
  * stops being active (another PSBT arriving, the app going behind), and
  * on disappearance as the fallback.
  */
-struct QrScanScreen: View {
+struct QrScanScreen<Alternatives: View>: View {
     let title: String
     let onPsbt: (Data) -> Void
     let onExit: () -> Void
+    /** Other ways in, under the camera; offered too when the camera is refused. */
+    @ViewBuilder var alternatives: () -> Alternatives
 
     var body: some View {
-        QrCameraPermissionGate(onExit: onExit) {
-            QrScanner(title: title, onPsbt: onPsbt, onExit: onExit)
+        QrCameraPermissionGate(onExit: onExit, alternatives: alternatives) {
+            QrScanner(title: title, onPsbt: onPsbt, onExit: onExit, alternatives: alternatives)
         }
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
@@ -97,10 +99,17 @@ private final class ControllerSlot: @unchecked Sendable {
     }
 }
 
-private struct QrScanner: View {
+extension QrScanScreen where Alternatives == EmptyView {
+    init(title: String, onPsbt: @escaping (Data) -> Void, onExit: @escaping () -> Void) {
+        self.init(title: title, onPsbt: onPsbt, onExit: onExit) { EmptyView() }
+    }
+}
+
+private struct QrScanner<Alternatives: View>: View {
     let title: String
     let onPsbt: (Data) -> Void
     let onExit: () -> Void
+    @ViewBuilder let alternatives: () -> Alternatives
 
     @State private var model = QrScanModel()
     @State private var session = QrCameraSession()
@@ -133,8 +142,11 @@ private struct QrScanner: View {
                 .padding(12)
                 .background(Palette.cameraScrim.ignoresSafeArea(edges: .top))
                 Spacer(minLength: 0)
-                ScanRing(state: model.state)
-                    .padding(32)
+                VStack(spacing: 16) {
+                    ScanRing(state: model.state)
+                    alternatives()
+                }
+                .padding(24)
             }
             if let error = session.error {
                 Text(error).foregroundStyle(.white).multilineTextAlignment(.center).padding(24)
@@ -200,8 +212,9 @@ private struct ScanRing: View {
 }
 
 // The same gate the photo camera carries inline; the two could fold together.
-private struct QrCameraPermissionGate<Content: View>: View {
+private struct QrCameraPermissionGate<Alternatives: View, Content: View>: View {
     let onExit: () -> Void
+    @ViewBuilder let alternatives: () -> Alternatives
     @ViewBuilder let content: () -> Content
 
     @State private var status = AVCaptureDevice.authorizationStatus(for: .video)
@@ -235,6 +248,7 @@ private struct QrCameraPermissionGate<Content: View>: View {
                         }
                         .buttonStyle(.primary)
                         Button("Open app settings", action: openSettings).buttonStyle(.secondary)
+                        alternatives()
                         Button("Back", action: onExit).buttonStyle(.secondary)
                     }
                     .padding(24)

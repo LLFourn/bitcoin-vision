@@ -23,7 +23,7 @@ struct EndedBackupScreen: View {
 
     var body: some View {
         TaskPage(
-            title: "Penlock backup",
+            title: "Share strips",
             onBack: onDone,
             actions: {
                 Button("Return", action: onDone)
@@ -67,7 +67,7 @@ struct SharesScreen: View {
         let exit = { confirmExit = true }
         let current = min(page, max(shares.count - 1, 0))
         return TaskPage(
-            title: "Penlock backup",
+            title: "Share strips",
             onBack: exit,
             actions: {
                 if current < shares.count - 1 {

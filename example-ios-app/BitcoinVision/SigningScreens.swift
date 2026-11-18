@@ -23,13 +23,12 @@ func totalLeaving(amounts: [UInt64], fee: UInt64) -> UInt64 {
 let QR_FRAGMENT_BYTES: UInt32 = 400
 
 /**
- * The PSBT to sign, off Sparrow's screen or from the phone's files. (The
- * Android debug build's emulator-only "From file" route reads a directory
- * only adb can fill; it has no iOS counterpart.)
+ * The PSBT to sign: the camera, open on Sparrow's screen, with the phone's
+ * files beneath it. (The Android debug build's emulator-only "From file"
+ * route reads a directory only adb can fill; it has no iOS counterpart.)
  */
 struct SignPickScreen: View {
     let wallets: WalletsViewModel
-    let onScanQr: () -> Void
     let onReviewed: () -> Void
     let onBack: () -> Void
 
@@ -41,18 +40,18 @@ struct SignPickScreen: View {
     }
 
     var body: some View {
-        TaskPage(title: "Sign a transaction", onBack: onBack, actions: {
-            Button("Scan QR code", action: onScanQr)
-                .buttonStyle(.primary)
-                .accessibilityIdentifier("scan-qr")
+        QrScanScreen(title: "Show Sparrow's QR code", onPsbt: { take(.bytes($0)) }, onExit: onBack) {
+            Text("First make the transaction in Sparrow, then scan its QR code. " +
+                 "Review first, then sign. Nothing is broadcast.")
+                .font(.bodyLarge)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Palette.cameraScrim)
+                .accessibilityIdentifier("send-hint")
             Button("Choose transaction file") { picking = true }
-                .buttonStyle(.outlined)
+                .buttonStyle(.primary)
                 .accessibilityIdentifier("choose-file")
-        }) {
-            SigningBody {
-                Text("Show Sparrow's QR code to the camera.").font(.titleLarge)
-                Text("Review first, then sign. Nothing is broadcast.").foregroundStyle(Palette.onSurfaceVariant)
-            }
         }
         .fileImporter(isPresented: $picking, allowedContentTypes: [.data]) { result in
             guard case let .success(url) = result else { return }
@@ -95,7 +94,7 @@ struct ReviewPsbtScreen: View {
                     .accessibilityIdentifier("done-signing")
             }) {
                 SigningBody {
-                    Text(reason)
+                    Text(ERROR_MARK + reason)
                         .font(.titleMedium)
                         .foregroundStyle(Palette.error)
                         .accessibilityIdentifier("refusal")
@@ -112,11 +111,11 @@ struct ReviewPsbtScreen: View {
                         .buttonStyle(.primary)
                         .accessibilityIdentifier("sign")
                 } else {
-                    Text("Load the key, then sign.")
+                    Text("Scan your words, then sign.")
                         .font(.bodyMedium)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .accessibilityIdentifier("key-missing")
-                    Button("Load key") { onLoadKey(walletId) }
+                    Button("Scan your words") { onLoadKey(walletId) }
                         .buttonStyle(.primary)
                         .accessibilityIdentifier("load-key")
                 }

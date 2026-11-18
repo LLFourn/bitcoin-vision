@@ -7,14 +7,15 @@ import SwiftUI
  */
 enum Route: Hashable {
     case wallets
-    case add
+    /** Adding a wallet, with the name chosen as it began; leaving adding drops it. */
+    case add(name: String?)
     case wallet(id: String)
     case newBackup
     case connect(id: String)
+    case receive(id: String)
     case keys(id: String)
     case load(id: String, task: String)
     case signPick
-    case signScan
     case signReview
     case signSigned
     case sheetScan(purpose: String, task: String)
@@ -25,6 +26,11 @@ enum Route: Hashable {
     case backupChecked
 
     /** The route's task argument, where it has one. */
+    var isAdd: Bool {
+        if case .add = self { return true }
+        return false
+    }
+
     var task: String? {
         switch self {
         case .load(_, let task), .sheetScan(_, let task), .sheetReview(_, let task), .stripsScan(_, let task):
@@ -52,6 +58,15 @@ final class Navigator {
     var stack: [Route] { [.wallets] + path }
 
     var current: Route { path.last ?? .wallets }
+
+    /** The adding under way, whatever name it carries. */
+    var addRoute: Route? { stack.last(where: \.isAdd) }
+
+    /** The name chosen as adding began, held by the add entry while it is on the stack. */
+    var addingName: String? {
+        if case let .add(name) = addRoute { return name }
+        return nil
+    }
 
     func navigate(_ route: Route, popUpTo: Route? = nil, inclusive: Bool = false, singleTop: Bool = false) {
         if let popUpTo {

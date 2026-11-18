@@ -41,6 +41,13 @@ final class PrivacyCover {
         ]
     }
 
+    func uninstall() {
+        observers.forEach(NotificationCenter.default.removeObserver)
+        observers = []
+        for window in windows.values { window.isHidden = true }
+        windows = [:]
+    }
+
     func cover(_ scene: UIWindowScene) {
         let id = ObjectIdentifier(scene)
         if windows[id] != nil { return }
