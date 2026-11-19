@@ -6,13 +6,10 @@ use serde_json::json;
 /// Specific contradictory observations, using the same zero-based box IDs as fit.
 #[cfg(test)]
 pub(super) fn conflict_detail(observations: &[WordEvidence]) -> Option<String> {
-    describe_conflicts(observations.iter().enumerate().filter(|(_, o)| o.conflict))
-}
-
-fn describe_conflicts<'a>(
-    observations: impl Iterator<Item = (usize, &'a WordEvidence)>,
-) -> Option<String> {
     let conflicts: Vec<_> = observations
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| o.conflict)
         .map(|(k, o)| {
             let mut numbers: Vec<_> = o.labels.iter().filter_map(|l| l.ordinal).collect();
             numbers.sort_unstable();
@@ -45,25 +42,41 @@ impl Labelled {
             .map(|e| e.map(Evidence::label))
             .collect();
         let sequence = fit(&given, columns, rows);
-        if !sequence.has_held_sequence() {
+        // A box whose own label reads as two numbers is a misread: it takes
+        // neither, nor a number fit filled in for it, and the run stands.
+        let Numbering::Held {
+            mut numbers,
+            mut count,
+            mut missing,
+            out_of_place,
+            mut unresolved,
+        } = sequence
+        else {
             return sequence;
-        }
-        // Single-valued duplicates already reach fit's own check. Only competing
-        // values within an eligible word require a further veto of a Held result
-        // (fit may otherwise interpolate a number for its Shaped label). Labels
-        // outside both traversals cannot poison a sequence via diagnostic flags.
-        let contradictions = self.observations.iter().enumerate().filter(|(i, o)| {
-            if !columns.contains(i) && !rows.contains(i) {
-                return false;
+        };
+        let mut dropped = false;
+        for (i, o) in self.observations.iter().enumerate() {
+            if !columns.contains(&i) && !rows.contains(&i) {
+                continue;
             }
             let mut values = o.labels.iter().filter_map(|l| l.ordinal);
-            values
-                .next()
-                .is_some_and(|first| values.any(|n| n != first))
-        });
-        match describe_conflicts(contradictions) {
-            Some(detail) => Numbering::Inconsistent { detail },
-            None => sequence,
+            let competing = values.next().is_some_and(|first| values.any(|n| n != first));
+            if competing && numbers[i].take().is_some() {
+                unresolved.push(i);
+                dropped = true;
+            }
+        }
+        if dropped {
+            count = numbers.iter().flatten().copied().max().unwrap_or(0);
+            missing = (1..=count).filter(|n| !numbers.contains(&Some(*n))).collect();
+            unresolved.sort_unstable();
+        }
+        Numbering::Held {
+            numbers,
+            count,
+            missing,
+            out_of_place,
+            unresolved,
         }
     }
 }
@@ -445,20 +458,20 @@ mod tests {
     }
 
     #[test]
-    fn sufficiently_anchored_duplicates_still_reach_the_existing_fit_check() {
-        let mut values: Vec<_> = (1..=8).map(|i| (i, i)).collect();
+    fn a_duplicate_reaches_fit_and_costs_only_its_own_box() {
+        let mut values: Vec<_> = (1..=9).map(|i| (i, i)).collect();
         values[7] = (7, 7);
         let l = run(&values);
         assert!(l.observations[6].conflict && l.observations[7].conflict);
         assert_eq!(l.evidence[6].unwrap().label(), Label::Exact(7));
         assert_eq!(l.evidence[7].unwrap().label(), Label::Exact(7));
-        let order: Vec<_> = (0..8).collect();
-        assert_eq!(
-            l.numbering(&order, &order),
-            Numbering::Inconsistent {
-                detail: "two boxes are numbered 7 (boxes 6 and 7)".into(),
-            }
-        );
+        let order: Vec<_> = (0..9).collect();
+        let Numbering::Held { numbers, missing, .. } = l.numbering(&order, &order) else {
+            panic!("the run 1..9 holds")
+        };
+        // the second 7 is off the run; it takes the hole the run leaves for it
+        assert_eq!(numbers, (1..=9).map(Some).collect::<Vec<_>>());
+        assert!(missing.is_empty());
     }
 
     #[test]
@@ -471,12 +484,12 @@ mod tests {
         assert_eq!(given[8], Some(Label::Shaped));
         assert!(fit(&given, &order, &order).has_held_sequence());
         let result = l.numbering(&order, &order);
-        assert_eq!(
-            result,
-            Numbering::Inconsistent {
-                detail: "conflicting or duplicate observed labels (box 8: 9, 10)".into(),
-            }
-        );
+        let Numbering::Held { ref numbers, count, ref missing, ref unresolved, .. } = result else {
+            panic!("the run 1..8 still holds")
+        };
+        assert_eq!(numbers[8], None);
+        assert_eq!(numbers[..8], (1..=8).map(Some).collect::<Vec<_>>()[..]);
+        assert_eq!((count, missing.is_empty(), unresolved.as_slice()), (8, true, &[8][..]));
         assert!(!result.permits_word_repair());
         // Seven unambiguous anchors plus a competing observation are not eight
         // exact anchors. The eligibility rule still owns that distinction.
