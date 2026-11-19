@@ -41,43 +41,60 @@ impl Labelled {
             .iter()
             .map(|e| e.map(Evidence::label))
             .collect();
-        let sequence = fit(&given, columns, rows);
         // A box whose own label reads as two numbers is a misread: it takes
         // neither, nor a number fit filled in for it, and the run stands.
-        let Numbering::Held {
-            mut numbers,
-            mut count,
-            mut missing,
-            out_of_place,
-            mut unresolved,
-        } = sequence
-        else {
-            return sequence;
-        };
-        let mut dropped = false;
-        for (i, o) in self.observations.iter().enumerate() {
-            if !columns.contains(&i) && !rows.contains(&i) {
-                continue;
-            }
+        let competing = self.observations.iter().enumerate().filter_map(|(i, o)| {
             let mut values = o.labels.iter().filter_map(|l| l.ordinal);
-            let competing = values.next().is_some_and(|first| values.any(|n| n != first));
-            if competing && numbers[i].take().is_some() {
-                unresolved.push(i);
-                dropped = true;
-            }
+            let two = values
+                .next()
+                .is_some_and(|first| values.any(|n| n != first));
+            (two && (columns.contains(&i) || rows.contains(&i))).then_some(i)
+        });
+        revoke(fit(&given, columns, rows), competing)
+    }
+}
+
+/// `sequence` with `boxes` holding no number, and everything derived from
+/// the numbers held recounted.
+fn revoke(sequence: Numbering, boxes: impl IntoIterator<Item = usize>) -> Numbering {
+    let Numbering::Held {
+        mut numbers,
+        count,
+        missing,
+        mut out_of_place,
+        mut unresolved,
+    } = sequence
+    else {
+        return sequence;
+    };
+    let mut revoked = Vec::new();
+    for i in boxes {
+        if let Some(n) = numbers[i].take() {
+            revoked.push(n);
+            unresolved.push(i);
         }
-        if dropped {
-            count = numbers.iter().flatten().copied().max().unwrap_or(0);
-            missing = (1..=count).filter(|n| !numbers.contains(&Some(*n))).collect();
-            unresolved.sort_unstable();
-        }
-        Numbering::Held {
+    }
+    if revoked.is_empty() {
+        return Numbering::Held {
             numbers,
             count,
             missing,
             out_of_place,
             unresolved,
-        }
+        };
+    }
+    out_of_place.retain(|n| !revoked.contains(n));
+    let count = numbers.iter().flatten().copied().max().unwrap_or(0);
+    let missing = (1..=count)
+        .filter(|n| !numbers.contains(&Some(*n)))
+        .collect();
+    unresolved.sort_unstable();
+    Numbering::Held {
+        numbers,
+        count,
+        missing,
+        out_of_place,
+        unresolved,
     }
 }
 
@@ -466,7 +483,10 @@ mod tests {
         assert_eq!(l.evidence[6].unwrap().label(), Label::Exact(7));
         assert_eq!(l.evidence[7].unwrap().label(), Label::Exact(7));
         let order: Vec<_> = (0..9).collect();
-        let Numbering::Held { numbers, missing, .. } = l.numbering(&order, &order) else {
+        let Numbering::Held {
+            numbers, missing, ..
+        } = l.numbering(&order, &order)
+        else {
             panic!("the run 1..9 holds")
         };
         // the second 7 is off the run; it takes the hole the run leaves for it
@@ -484,12 +504,22 @@ mod tests {
         assert_eq!(given[8], Some(Label::Shaped));
         assert!(fit(&given, &order, &order).has_held_sequence());
         let result = l.numbering(&order, &order);
-        let Numbering::Held { ref numbers, count, ref missing, ref unresolved, .. } = result else {
+        let Numbering::Held {
+            ref numbers,
+            count,
+            ref missing,
+            ref unresolved,
+            ..
+        } = result
+        else {
             panic!("the run 1..8 still holds")
         };
         assert_eq!(numbers[8], None);
         assert_eq!(numbers[..8], (1..=8).map(Some).collect::<Vec<_>>()[..]);
-        assert_eq!((count, missing.is_empty(), unresolved.as_slice()), (8, true, &[8][..]));
+        assert_eq!(
+            (count, missing.is_empty(), unresolved.as_slice()),
+            (8, true, &[8][..])
+        );
         assert!(!result.permits_word_repair());
         // Seven unambiguous anchors plus a competing observation are not eight
         // exact anchors. The eligibility rule still owns that distinction.
@@ -498,6 +528,36 @@ mod tests {
         let order: Vec<_> = (0..8).collect();
         assert_eq!(l.numbering(&order, &order), Numbering::None);
         assert!(l.observations[7].conflict);
+    }
+
+    #[test]
+    fn a_revoked_number_off_the_run_is_no_longer_out_of_place() {
+        // 1..12 with 3 and 4 swapped: the run holds one of them, the other
+        // is out of place, until its box is revoked
+        let mut labels: Vec<Option<Label>> = (1..=12).map(|n| Some(Label::Exact(n))).collect();
+        labels.swap(2, 3);
+        let order: Vec<_> = (0..12).collect();
+        let Numbering::Held { out_of_place, .. } = fit(&labels, &order, &order) else {
+            panic!("the run holds")
+        };
+        let off = out_of_place[0];
+        let at = labels
+            .iter()
+            .position(|l| *l == Some(Label::Exact(off)))
+            .unwrap();
+        let Numbering::Held {
+            numbers,
+            out_of_place,
+            unresolved,
+            missing,
+            ..
+        } = revoke(fit(&labels, &order, &order), [at])
+        else {
+            panic!("the run still holds")
+        };
+        assert_eq!(numbers[at], None);
+        assert!(out_of_place.is_empty());
+        assert_eq!((unresolved, missing), (vec![at], vec![off]));
     }
 
     #[test]
